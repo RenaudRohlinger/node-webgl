@@ -41,6 +41,7 @@
             "<(module_root_dir)/angle/lib/win32-<(target_arch)/libANGLE.lib",
             "d3d11.lib", "dxgi.lib", "dxguid.lib", "d3d9.lib", "gdi32.lib", "user32.lib", "synchronization.lib", "dcomp.lib", "delayimp.lib"
           ],
+          "defines": ["KHRONOS_STATIC", "EGLAPI=", "GL_APICALL=", "ANGLE_STATIC", "NOMINMAX", "WIN32_LEAN_AND_MEAN"],
           "msvs_settings": {"VCCLCompilerTool": {"ExceptionHandling": 1, "AdditionalOptions": ["/std:c++17"]}}
         }],
         ["OS=='linux'", {

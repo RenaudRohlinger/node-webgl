@@ -559,9 +559,21 @@ function clampInt(v: number, upper: number): number {
   return v < 0 ? 0 : v >= upper ? upper - 1 : v;
 }
 
-/** Bilinear chroma-style upsampling (pixel-center aligned; degenerates to an exact lookup when h===maxH && v===maxV). */
+/**
+ * Chroma-style upsampling. For the common 1x/2x expansion factors (4:4:4, 4:2:2, 4:2:0) this
+ * matches libjpeg/ImageIO's "fancy" triangle-filter upsampling via pixel-center-aligned bilinear
+ * interpolation. Uncommon expansion factors (e.g. 3x, 4x) fall back to nearest-neighbor block
+ * replication, matching the generic (non-fancy) upsampler every mainstream decoder uses there.
+ */
 function sampleComponent(info: SampleInfo, x: number, y: number, maxH: number, maxV: number): number {
   if (info.h === maxH && info.v === maxV) return info.plane[y * info.stride + x];
+  const hExpand = maxH / info.h, vExpand = maxV / info.v;
+  const fancy = Number.isInteger(hExpand) && hExpand <= 2 && Number.isInteger(vExpand) && vExpand <= 2;
+  if (!fancy) {
+    const sx = clampInt(Math.floor(x / hExpand), info.actualW);
+    const sy = clampInt(Math.floor(y / vExpand), info.actualH);
+    return info.plane[sy * info.stride + sx];
+  }
   const sx = ((x + 0.5) * info.h) / maxH - 0.5;
   const sy = ((y + 0.5) * info.v) / maxV - 0.5;
   const x0 = Math.floor(sx), y0 = Math.floor(sy);
