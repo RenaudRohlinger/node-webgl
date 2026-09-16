@@ -35,6 +35,7 @@
           }
         }],
         ["OS=='win'", {
+          "sources": ["src/native/astcenc_stub.cc"],
           "libraries": [
             "<(module_root_dir)/angle/lib/win32-<(target_arch)/libEGL.lib",
             "<(module_root_dir)/angle/lib/win32-<(target_arch)/libGLESv2.lib",

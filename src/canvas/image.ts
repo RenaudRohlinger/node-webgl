@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { resolve as resolvePath } from 'node:path';
 import { loadNative, type DecodedImage } from '../native.ts';
 import { decodePNG, encodePNG, isPNG } from './png.ts';
+import { decodeJPEG, isJPEG } from './jpeg.ts';
 import type { RGBA8Source } from '../webgl/pixels.ts';
 
 export type { DecodedImage };
@@ -50,7 +51,7 @@ export function registerImageDecoder(decoder: ImageDecoder): void {
   decoders.unshift(decoder);
 }
 
-/** Decodes PNG/JPEG/... bytes into straight-alpha RGBA8 (top row first). */
+/** Decodes PNG/JPEG (built in) or anything ImageIO knows on macOS into straight-alpha RGBA8 (top row first). */
 export function decodeImage(bytes: Uint8Array | ArrayBuffer): DecodedImage {
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   for (const d of decoders) if (d.test(u8)) return d.decode(u8);
@@ -59,10 +60,11 @@ export function decodeImage(bytes: Uint8Array | ArrayBuffer): DecodedImage {
     try {
       return native.decodeImage(u8);
     } catch (e) {
-      if (!isPNG(u8)) throw e;
+      if (!isPNG(u8) && !isJPEG(u8)) throw e;
     }
   }
   if (isPNG(u8)) return decodePNG(u8);
+  if (isJPEG(u8)) return decodeJPEG(u8);
   throw new Error('decodeImage: unsupported image format (PNG and JPEG are built in; register a decoder with registerImageDecoder() for others)');
 }
 

@@ -15,6 +15,7 @@ export {
   registerImageDecoder, type ImageDecoder, type DecodedImage, type ImageBitmapOptions,
 } from './canvas/image.ts';
 export { encodePNG, decodePNG, isPNG } from './canvas/png.ts';
+export { decodeJPEG, isJPEG } from './canvas/jpeg.ts';
 export { installDOM, type InstallDOMOptions } from './dom.ts';
 
 import { Canvas } from './canvas/Canvas.ts';

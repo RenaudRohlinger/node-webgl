@@ -5,10 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import {
-  createCanvas, encodePNG, decodePNG, isPNG, encodeImage, decodeImage, loadImage,
-  Image, ImageData, ImageBitmap, createImageBitmap, installDOM,
-} from '../src/index.ts';
+import { createCanvas, encodePNG, decodePNG, isPNG, encodeImage, decodeImage, loadImage, Image, ImageData, ImageBitmap, createImageBitmap, installDOM, decodeJPEG, isJPEG } from '../src/index.ts';
 import { assertPixel } from './helpers.ts';
 
 const TMP = mkdtempSync(join(tmpdir(), 'node-webgl-test-'));
@@ -413,5 +410,32 @@ describe('installDOM', () => {
 
     const dataUrl = await fetch(`data:text/plain;base64,${Buffer.from('hi').toString('base64')}`);
     assert.equal(await dataUrl.text(), 'hi', 'data: URLs still go to the original fetch');
+  });
+});
+
+describe('pure-JS JPEG decoder', () => {
+  test('decodes a JPEG and agrees with the native codec', (t) => {
+    const w = 61, h = 37;
+    const rgba = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      rgba[i] = (x * 255) / (w - 1); rgba[i + 1] = (y * 255) / (h - 1); rgba[i + 2] = 128; rgba[i + 3] = 255;
+    }
+    let jpeg: Uint8Array;
+    try { jpeg = encodeImage(w, h, rgba, 'image/jpeg', 0.95); } catch { return t.skip('no native JPEG encoder on this platform'); }
+    assert.ok(isJPEG(jpeg));
+    const ours = decodeJPEG(jpeg);
+    assert.equal(ours.width, w);
+    assert.equal(ours.height, h);
+    assert.equal(ours.data.length, w * h * 4);
+    const ref = decodeImage(jpeg);
+    let err = 0;
+    for (let i = 0; i < ours.data.length; i += 4) err += Math.abs(ours.data[i] - ref.data[i]) + Math.abs(ours.data[i + 1] - ref.data[i + 1]) + Math.abs(ours.data[i + 2] - ref.data[i + 2]);
+    const mae = err / (w * h * 3);
+    assert.ok(mae < 2, `mean abs error vs native decoder: ${mae.toFixed(2)}`);
+    // and against the source image (lossy, so a looser bound)
+    let src = 0;
+    for (let i = 0; i < rgba.length; i += 4) src += Math.abs(ours.data[i] - rgba[i]) + Math.abs(ours.data[i + 1] - rgba[i + 1]) + Math.abs(ours.data[i + 2] - rgba[i + 2]);
+    assert.ok(src / (w * h * 3) < 6, 'decoded JPEG resembles the encoded gradient');
   });
 });
