@@ -1,0 +1,46 @@
+name: build
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+jobs:
+  prebuild:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14      # Apple silicon → prebuilds/darwin-arm64
+          - os: macos-13      # Intel → prebuilds/darwin-x64
+          - os: windows-2022  # → prebuilds/win32-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci --ignore-scripts
+      - run: npm run gen
+      - run: npm run prebuild
+      - run: npm run build:ts
+      - run: npm test
+      - run: npm run examples
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prebuilds-${{ matrix.os }}
+          path: prebuilds/
+  linux-mesa:
+    # No static ANGLE for Linux yet: build in dynamic mode against Mesa's EGL/GLES (llvmpipe, no display server).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: sudo apt-get update && sudo apt-get install -y libegl1 libgles2 libgl1-mesa-dri python3 build-essential
+      - run: npm ci --ignore-scripts
+      - run: npm run gen
+      - run: npx node-gyp rebuild
+      - run: npm run build:ts
+      - run: npm test
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'

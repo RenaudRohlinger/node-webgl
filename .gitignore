@@ -1,0 +1,8 @@
+node_modules/
+build/
+dist/
+prebuilds/
+angle/lib/
+examples/out/
+*.log
+.DS_Store

@@ -1,0 +1,78 @@
+{
+  "name": "@onirenaud/node-webgl",
+  "version": "0.1.0",
+  "description": "Headless WebGL 1 and WebGL 2 for Node.js, powered by ANGLE. Render any WebGL or three.js scene without a browser.",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Renaud Rohlinger",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RenaudRohlinger/node-webgl.git"
+  },
+  "homepage": "https://github.com/RenaudRohlinger/node-webgl#readme",
+  "bugs": {
+    "url": "https://github.com/RenaudRohlinger/node-webgl/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./dom": {
+      "types": "./dist/dom.d.ts",
+      "default": "./dist/dom.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "scripts",
+    "angle/include",
+    "binding.gyp",
+    "prebuilds",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "install": "node scripts/install.mjs",
+    "fetch-angle": "node scripts/fetch-angle.mjs",
+    "gen": "node scripts/gen-native.mjs && node scripts/gen-constants.mjs",
+    "build:native": "node scripts/fetch-angle.mjs && node-gyp rebuild",
+    "build:ts": "tsc -p tsconfig.json",
+    "build": "npm run gen && npm run build:native && npm run build:ts",
+    "prebuild": "node scripts/fetch-angle.mjs && prebuildify --napi --strip",
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
+    "examples": "node examples/run-all.mjs",
+    "prepublishOnly": "npm run build:ts && npm test"
+  },
+  "dependencies": {
+    "node-gyp-build": "^4.8.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "prebuildify": "^6.0.1",
+    "three": "0.186.0",
+    "typescript": "^5.9.2"
+  },
+  "keywords": [
+    "webgl",
+    "webgl2",
+    "headless",
+    "angle",
+    "opengl",
+    "three.js",
+    "node",
+    "gpu",
+    "offscreen",
+    "rendering"
+  ]
+}
