@@ -142,7 +142,7 @@ Every push runs the whole thing — build the addon, compile the TypeScript, run
 |---|---|---|---|---|
 | `macos-latest` (Apple silicon) | Metal — *ANGLE Metal Renderer: Apple Paravirtual device* | **246 passed**, 0 skipped, 9.5 s | 12 / 12 in 15 s | **1 min 12 s** |
 | `windows-2022` | Direct3D 11 — *Microsoft Basic Render Driver* (WARP) | **240 passed**, 6 skipped¹, 5.6 s | 12 / 12 in 10 s | **2 min 25 s** |
-| `ubuntu-24.04` | Mesa 24 llvmpipe (`LIBGL_ALWAYS_SOFTWARE=1`) | **232 passed**, 14 skipped², 9.0 s | 12 / 12 | **36 s** |
+| `ubuntu-24.04` | Mesa 24 llvmpipe (`LIBGL_ALWAYS_SOFTWARE=1`) | **232 passed**, 14 skipped², 9.0 s | 12 / 12 in 11 s | **54 s** |
 
 Nothing is mocked: the suite reads pixels back from the GPU (or the software rasterizer) for shaders, textures, framebuffers, transform feedback, sync objects and every extension. The same tests pass on real hardware (Apple M-series, 246/246 in about 2 s).
 
