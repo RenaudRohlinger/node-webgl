@@ -118,16 +118,15 @@ gl.canvas.toBuffer('image/png');
 
 **Extensions** (52 distinct): `ANGLE_instanced_arrays`, `EXT_blend_minmax`, `EXT_clip_control`, `EXT_color_buffer_float`, `EXT_color_buffer_half_float`, `EXT_conservative_depth`, `EXT_depth_clamp`, `EXT_disjoint_timer_query`, `EXT_disjoint_timer_query_webgl2`, `EXT_float_blend`, `EXT_frag_depth`, `EXT_polygon_offset_clamp`, `EXT_render_snorm`, `EXT_shader_texture_lod`, `EXT_sRGB`, `EXT_texture_compression_bptc`, `EXT_texture_compression_rgtc`, `EXT_texture_filter_anisotropic`, `EXT_texture_mirror_clamp_to_edge`, `EXT_texture_norm16`, `KHR_parallel_shader_compile`, `NV_shader_noperspective_interpolation`, `OES_draw_buffers_indexed`, `OES_element_index_uint`, `OES_fbo_render_mipmap`, `OES_standard_derivatives`, `OES_texture_float`, `OES_texture_float_linear`, `OES_texture_half_float`, `OES_texture_half_float_linear`, `OES_vertex_array_object`, `OVR_multiview2`, `WEBGL_blend_func_extended`, `WEBGL_clip_cull_distance`, `WEBGL_color_buffer_float`, `WEBGL_compressed_texture_astc`, `WEBGL_compressed_texture_etc`, `WEBGL_compressed_texture_etc1`, `WEBGL_compressed_texture_pvrtc`, `WEBGL_compressed_texture_s3tc`, `WEBGL_compressed_texture_s3tc_srgb`, `WEBGL_debug_renderer_info`, `WEBGL_debug_shaders`, `WEBGL_depth_texture`, `WEBGL_draw_buffers`, `WEBGL_draw_instanced_base_vertex_base_instance`, `WEBGL_lose_context`, `WEBGL_multi_draw`, `WEBGL_multi_draw_instanced_base_vertex_base_instance`, `WEBGL_polygon_mode`, `WEBGL_provoking_vertex`, `WEBGL_render_shared_exponent`, `WEBGL_stencil_texturing`. Availability follows the GPU and backend, exactly as in a browser.
 
-**Verified by 245 tests** (`npm test`, about two seconds) that check observable results — pixels read back, state queries, object identity — for shaders and uniforms, buffers, VAOs and instancing, textures (2D / 3D / array / cube / compressed / float, flipY, premultiply, PBOs), framebuffers (MRT, depth/stencil, MSAA blits, float attachments), transform feedback, queries, sync objects, samplers, uniform blocks, every extension, context loss and restore, object lifetime rules, image codecs and the DOM shim. A generated test also asserts that every method and constant of the Khronos IDL exists on the right class (the only non-spec additions are `destroy()` and WebXR's `makeXRCompatible()`), and that WebGL 2 API never leaks onto a WebGL 1 context.
+**Verified by 246 tests** (`npm test`, about two seconds) that check observable results — pixels read back, state queries, object identity — for shaders and uniforms, buffers, VAOs and instancing, textures (2D / 3D / array / cube / compressed / float, flipY, premultiply, PBOs), framebuffers (MRT, depth/stencil, MSAA blits, float attachments), transform feedback, queries, sync objects, samplers, uniform blocks, every extension, context loss and restore, object lifetime rules, image codecs and the DOM shim. A generated test also asserts that every method and constant of the Khronos IDL exists on the right class (the only non-spec additions are `destroy()` and WebXR's `makeXRCompatible()`), and that WebGL 2 API never leaks onto a WebGL 1 context.
 
 ## Platforms
 
 | Platform | GPU backend | Install | Status |
 |---|---|---|---|
-| macOS arm64 (Apple silicon) | Metal | prebuilt, nothing to compile | verified: 245/245 tests, 12/12 examples |
-| macOS x64 | Metal / OpenGL | prebuilt via CI | built by the workflow, not yet hand-verified |
+| macOS arm64 (Apple silicon) | Metal | prebuilt, nothing to compile | verified locally and on GitHub's macOS runners: 246/246 tests, 12/12 examples |
 | Windows x64 | D3D11 | prebuilt via CI | built by the workflow, not yet hand-verified |
-| Linux (x64, arm64) | Mesa (llvmpipe, Zink, or your GPU driver) | compiles on install, ~30 s | verified in a Debian 12 container: 233/245 tests (12 skipped as ANGLE-specific), examples render |
+| Linux (x64, arm64) | Mesa (llvmpipe, Zink, or your GPU driver) | compiles on install, ~30 s | verified in a Debian 12 container: 233/246 tests (13 skipped as ANGLE/macOS-specific), 12/12 examples |
 | Anywhere with Chromium/Electron | ANGLE + SwiftShader (CPU) | point `NODE_WEBGL_LIBEGL` at it | verified on macOS |
 
 ## Using it
@@ -201,7 +200,7 @@ sudo apt-get install -y libegl1 libgles2 libgl1-mesa-dri   # Debian/Ubuntu, GitH
 LIBGL_ALWAYS_SOFTWARE=1 node render.mjs                     # llvmpipe: no GPU, no display server
 ```
 
-Verified in a Debian 12 container (Mesa 22.3, llvmpipe): 233 of 245 tests pass, 12 are skipped as ANGLE-specific (exact extension lists, translated shader source, multi-draw), and the three.js examples render. A software rasterizer is slower than Metal or D3D11, but fine for CI screenshots and regression tests. Point `NODE_WEBGL_LIBEGL` at Chromium's ANGLE + SwiftShader instead for browser-identical validation.
+Verified in a Debian 12 container (Mesa 22.3, llvmpipe): 233 of 246 tests pass and 13 are skipped as ANGLE- or macOS-specific (exact extension lists, translated shader source, multi-draw, the ImageIO codec), and all 12 three.js examples render — JPEG textures included. A software rasterizer is slower than Metal or D3D11, but fine for CI screenshots and regression tests. Point `NODE_WEBGL_LIBEGL` at Chromium's ANGLE + SwiftShader instead for browser-identical validation.
 
 ## How it works
 
@@ -234,7 +233,7 @@ Measured on an Apple M5 Max (Metal backend):
 | `uniformMatrix4fv` | ~60 ns |
 | three.js r186 scene (PBR, shadows, MSAA), 512×384 | 0.18 ms per frame |
 | Uploading a 2048² RGBA8 image with `UNPACK_FLIP_Y_WEBGL` | 4 ms |
-| Full test suite (245 tests) | ~2 s |
+| Full test suite (246 tests) | ~2 s |
 
 ## Development
 
@@ -243,7 +242,7 @@ npm install --ignore-scripts
 npm run gen            # regenerate bindings + constants from the GL headers / WebGL IDL
 npm run build:native   # fetch ANGLE + node-gyp rebuild
 npm run build:ts       # tsc → dist/
-npm test               # node:test suite, WebGL 1 + 2 feature coverage
+npm test               # node:test suite (246 tests), WebGL 1 + 2 feature coverage
 npm run examples       # render every three.js example to examples/out/*.png
 npm run prebuild       # prebuildify → prebuilds/<platform>-<arch>/
 ```
@@ -256,7 +255,7 @@ Node 22+ runs the TypeScript sources directly, so tests and examples import `src
 - No `2d` canvas context: use a WebGL context, or a separate 2D library and upload its pixels.
 - `HTMLVideoElement` sources and `WEBGL_shader_pixel_local_storage` are not implemented.
 - `preserveDrawingBuffer: false` has no effect — without a compositor nothing ever clears the buffer behind your back.
-- macOS x64 and Windows builds come out of the CI workflow but have not been exercised by hand yet.
+- Windows builds come out of the CI workflow but have not been exercised by hand yet; there is no macOS x64 (Intel) prebuild.
 
 ## License
 

@@ -2,36 +2,25 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCanvas, WebGLContextEvent } from '../src/index.ts';
+import { EXTENSIONS } from '../src/webgl/extensions.ts';
 import { makeGL, dispose, program, shader, drawFullscreenQuad, readPixel, assertPixel, assertNoError, clearErrors, GLSL100, GLSL300, isANGLE } from './helpers.ts';
 
 const CONTEXT_LOST_WEBGL = 0x9242;
 const INVALID_ENUM = 0x0500;
 
-/** Always available in this ANGLE build, on both context versions. */
-const SHARED_ALWAYS = [
-  'EXT_clip_control', 'EXT_color_buffer_half_float', 'EXT_depth_clamp', 'EXT_float_blend',
-  'EXT_polygon_offset_clamp', 'EXT_texture_compression_bptc', 'EXT_texture_compression_rgtc',
-  'EXT_texture_filter_anisotropic', 'EXT_texture_mirror_clamp_to_edge', 'KHR_parallel_shader_compile',
-  'OES_texture_float_linear', 'WEBGL_blend_func_extended', 'WEBGL_compressed_texture_astc',
-  'WEBGL_compressed_texture_etc', 'WEBGL_compressed_texture_etc1', 'WEBGL_compressed_texture_pvrtc',
-  'WEBGL_compressed_texture_s3tc', 'WEBGL_compressed_texture_s3tc_srgb', 'WEBGL_debug_renderer_info',
-  'WEBGL_debug_shaders', 'WEBGL_lose_context', 'WEBGL_multi_draw', 'WEBGL_polygon_mode',
-];
+/** Guaranteed by ANGLE on every backend (Metal, D3D11, Vulkan, GL) for both context versions. */
+const SHARED_ALWAYS = ['EXT_texture_filter_anisotropic', 'WEBGL_debug_renderer_info', 'WEBGL_debug_shaders', 'WEBGL_lose_context'];
 
-const WEBGL2_ONLY = [
-  'EXT_color_buffer_float', 'EXT_conservative_depth', 'EXT_disjoint_timer_query_webgl2', 'EXT_render_snorm',
-  'EXT_texture_norm16', 'NV_shader_noperspective_interpolation', 'OES_draw_buffers_indexed',
-  'WEBGL_clip_cull_distance', 'WEBGL_draw_instanced_base_vertex_base_instance',
-  'WEBGL_multi_draw_instanced_base_vertex_base_instance', 'WEBGL_provoking_vertex',
-  'WEBGL_render_shared_exponent', 'WEBGL_stencil_texturing',
-];
+/** WebGL 2 extensions every ANGLE backend supports; the full WebGL 2-only set comes from the registry. */
+const WEBGL2_ALWAYS = ['EXT_color_buffer_float'];
+const WEBGL2_ONLY = EXTENSIONS.filter((e) => e.version === 2).map((e) => e.name);
 
-const WEBGL1_ONLY = [
-  'ANGLE_instanced_arrays', 'EXT_blend_minmax', 'EXT_disjoint_timer_query', 'EXT_frag_depth',
-  'EXT_sRGB', 'EXT_shader_texture_lod', 'OES_element_index_uint', 'OES_fbo_render_mipmap',
-  'OES_standard_derivatives', 'OES_texture_float', 'OES_texture_half_float', 'OES_texture_half_float_linear',
-  'OES_vertex_array_object', 'WEBGL_color_buffer_float', 'WEBGL_depth_texture', 'WEBGL_draw_buffers',
+/** WebGL 1 extensions every ANGLE backend supports; the full WebGL 1-only set comes from the registry. */
+const WEBGL1_ALWAYS = [
+  'ANGLE_instanced_arrays', 'OES_element_index_uint', 'OES_standard_derivatives', 'OES_texture_float',
+  'OES_texture_half_float', 'OES_vertex_array_object', 'WEBGL_depth_texture', 'WEBGL_draw_buffers',
 ];
+const WEBGL1_ONLY = EXTENSIONS.filter((e) => e.version === 1).map((e) => e.name);
 
 describe('getSupportedExtensions', () => {
   test('WebGL 2 lists the expected extensions and no WebGL1-only ones', (t) => {
@@ -40,7 +29,7 @@ describe('getSupportedExtensions', () => {
     const list = gl.getSupportedExtensions();
     assert.ok(Array.isArray(list));
     assert.equal(new Set(list).size, list.length, 'no duplicates');
-    for (const name of [...SHARED_ALWAYS, ...WEBGL2_ONLY]) {
+    for (const name of [...SHARED_ALWAYS, ...WEBGL2_ALWAYS]) {
       assert.ok(list.includes(name), `WebGL 2 should expose ${name}`);
     }
     for (const name of WEBGL1_ONLY) {
@@ -57,7 +46,7 @@ describe('getSupportedExtensions', () => {
     if (!isANGLE()) return t.skip('ANGLE-specific behavior');
     const gl = makeGL(1, 8, 8);
     const list = gl.getSupportedExtensions();
-    for (const name of [...SHARED_ALWAYS, ...WEBGL1_ONLY]) {
+    for (const name of [...SHARED_ALWAYS, ...WEBGL1_ALWAYS]) {
       assert.ok(list.includes(name), `WebGL 1 should expose ${name}`);
     }
     for (const name of WEBGL2_ONLY) {
@@ -120,14 +109,17 @@ describe('extension constants', () => {
       EXT_texture_compression_bptc: { COMPRESSED_RGBA_BPTC_UNORM_EXT: 0x8e8c },
       EXT_texture_compression_rgtc: { COMPRESSED_RED_RGTC1_EXT: 0x8dbb },
     };
+    let checked = 0;
     for (const [name, consts] of Object.entries(expectations)) {
       const ext = gl.getExtension(name);
-      assert.ok(ext, `${name} should be available`);
+      if (!ext) continue; // depends on the GPU / backend
+      checked++;
       for (const [k, v] of Object.entries(consts)) assert.equal(ext[k], v, `${name}.${k}`);
     }
     const astc = gl.getExtension('WEBGL_compressed_texture_astc');
     const profiles = astc.getSupportedProfiles();
     assert.ok(Array.isArray(profiles) && profiles.includes('ldr'), `ASTC profiles: ${profiles}`);
+    assert.ok(checked >= 2, `at least S3TC/ETC-style compressed formats should exist, found ${checked}`);
     dispose(gl);
   });
 
@@ -211,7 +203,10 @@ describe('WEBGL_debug_renderer_info / WEBGL_debug_shaders', () => {
     const src = ext.getTranslatedShaderSource(fs);
     assert.equal(typeof src, 'string');
     assert.ok(src.length > 100, `translated source length ${src.length}`);
-    assert.match(src, /metal_stdlib|#include|namespace metal/, 'the Metal backend emits MSL');
+    const renderer: string = gl.getParameter(gl.getExtension('WEBGL_debug_renderer_info').UNMASKED_RENDERER_WEBGL);
+    if (/metal/i.test(renderer)) assert.match(src, /metal_stdlib|#include|namespace metal/, 'the Metal backend emits MSL');
+    else if (/direct3d|d3d11/i.test(renderer)) assert.match(src, /float4|SV_Target|cbuffer|Texture2D/, 'the D3D11 backend emits HLSL');
+    else assert.match(src, /#version|layout|gl_FragColor|void main/, 'GL/Vulkan backends emit GLSL');
     assert.notEqual(src, GLSL300.fsSolid, 'it is not just the original GLSL');
     assertNoError(gl);
     dispose(gl);
