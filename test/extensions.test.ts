@@ -116,10 +116,11 @@ describe('extension constants', () => {
       checked++;
       for (const [k, v] of Object.entries(consts)) assert.equal(ext[k], v, `${name}.${k}`);
     }
-    const astc = gl.getExtension('WEBGL_compressed_texture_astc');
     const astc = gl.getExtension('WEBGL_compressed_texture_astc'); // absent on D3D11 / GPUs without ASTC
-    if (astc) const profiles = astc.getSupportedProfiles();
-    assert.ok(Array.isArray(profiles) && profiles.includes('ldr'), `ASTC profiles: ${profiles}`);
+    if (astc) {
+      const profiles = astc.getSupportedProfiles();
+      assert.ok(Array.isArray(profiles) && profiles.includes('ldr'), `ASTC profiles: ${profiles}`);
+    }
     assert.ok(checked >= 2, `at least S3TC/ETC-style compressed formats should exist, found ${checked}`);
     dispose(gl);
   });
