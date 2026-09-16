@@ -72,15 +72,25 @@ class BitReader {
     this.buf = 0;
   }
 
-  /** Returns the marker code (e.g. 0xd0) if stopped at one, otherwise null. */
+  /**
+   * Returns the marker code (e.g. 0xd0) if `pos` sits at one, otherwise null. Only valid right
+   * after alignByte(): probes the byte stream directly rather than the (possibly stale)
+   * markerHit flag, since a buffered-but-unread bit can leave pos already at the marker without
+   * nextByte() ever having been called to notice it.
+   */
   peekMarker(): number | null {
-    if (!this.markerHit) return null;
-    return this.pos + 1 < this.data.length ? this.data[this.pos + 1] : null;
+    let p = this.pos;
+    if (p >= this.data.length || this.data[p] !== 0xff) return null;
+    p++;
+    while (p < this.data.length && this.data[p] === 0xff) p++; // skip fill bytes
+    return p < this.data.length ? this.data[p] : null;
   }
 
-  /** Consumes a 2-byte marker previously seen via peekMarker() and resumes reading. */
+  /** Consumes a marker previously seen via peekMarker() (including any fill bytes) and resumes reading. */
   consumeMarker(): void {
-    this.pos += 2;
+    let p = this.pos + 1;
+    while (this.data[p] === 0xff) p++;
+    this.pos = p + 1;
     this.markerHit = false;
   }
 }

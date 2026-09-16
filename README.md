@@ -167,7 +167,7 @@ image.onload = () => { /* ... */ };
 image.src = 'https://example.com/photo.jpg';
 ```
 
-PNG and JPEG decoding are built in (pure JavaScript), PNG encoding too. On macOS, ImageIO additionally decodes GIF, WebP, HEIC, TIFF and BMP and encodes JPEG/WebP/HEIC. Anything else plugs in with `registerImageDecoder({ name, test(bytes), decode(bytes) })` — wrap `sharp`, for instance.
+PNG decoding and encoding are built in (pure JavaScript). On macOS, ImageIO additionally decodes JPEG, GIF, WebP, HEIC, TIFF and BMP and encodes JPEG/WebP/HEIC. On Linux and Windows, plug a decoder in for other formats with `registerImageDecoder({ name, test(bytes), decode(bytes) })` — wrapping `sharp` or `jpeg-js`, for instance (a built-in pure-JS JPEG decoder is coming in the next release).
 
 ### The DOM shim
 
