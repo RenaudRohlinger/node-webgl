@@ -1,5 +1,10 @@
 # @onirenaud/node-webgl
 
+[![npm](https://img.shields.io/npm/v/@onirenaud/node-webgl?label=npm&color=cb3837)](https://www.npmjs.com/package/@onirenaud/node-webgl)
+[![CI](https://github.com/RenaudRohlinger/node-webgl/actions/workflows/prebuild.yml/badge.svg)](https://github.com/RenaudRohlinger/node-webgl/actions/workflows/prebuild.yml)
+[![tests](https://img.shields.io/badge/tests-246%20passing-brightgreen)](#continuous-integration)
+[![platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-blue)](#platforms)
+
 **WebGL for Node.js — the real thing, headless.**
 
 A WebGL 1 and WebGL 2 implementation you can `npm install`, backed by the same GPU engine Chrome uses (ANGLE). It gives Node a canvas with a `getContext('webgl2')` that behaves exactly like the browser's, so anything written for WebGL — your own shaders, three.js, regl, pixi, Babylon, deck.gl — renders on the GPU inside a Node process, and you get the pixels back as a buffer or a PNG.
@@ -54,11 +59,11 @@ Headless WebGL in Node is not a new idea, and this package stands on the shoulde
 
 | | |
 |---|---|
-| Download (`npm install`) | **2.8 MB** compressed |
-| On disk | 9.4 MB, 78 files — 7.2 MB of that is the native addon with ANGLE inside |
+| Download (`npm install`) | **4.9 MB** compressed |
+| On disk | 14.8 MB, 84 files — 12.6 MB of that is two native addons with ANGLE inside (macOS arm64 7.2 MB, Windows x64 5.4 MB) |
 | Runtime dependencies | 1 (`node-gyp-build`, 30 KB) |
 | Native runtime requirements on macOS / Windows | none |
-| Compiler needed to install | no on macOS arm64 (prebuilt); Linux compiles a small addon (~30 s) |
+| Compiler needed to install | no on macOS arm64 and Windows x64 (prebuilt); Linux compiles a small addon (~10 s) |
 | Hand-written code | ~5,900 lines of TypeScript/C++ + 4,500 generated binding lines |
 
 For scale: a headless Chrome download is 150–300 MB and takes seconds to start; three.js itself is 22 MB in `node_modules`.
@@ -125,9 +130,24 @@ gl.canvas.toBuffer('image/png');
 | Platform | GPU backend | Install | Status |
 |---|---|---|---|
 | macOS arm64 (Apple silicon) | Metal | prebuilt, nothing to compile | verified locally and on GitHub's macOS runners: 246/246 tests, 12/12 examples |
-| Windows x64 | D3D11 | prebuilt via CI | built by the workflow, not yet hand-verified |
-| Linux (x64, arm64) | Mesa (llvmpipe, Zink, or your GPU driver) | compiles on install, ~30 s | verified in a Debian 12 container: 233/246 tests (13 skipped as ANGLE/macOS-specific), 12/12 examples |
+| Windows x64 | Direct3D 11 (WARP software renderer when there is no GPU) | prebuilt, nothing to compile | verified on GitHub's Windows runners: 240 passed / 6 skipped, 12/12 examples |
+| Linux (x64, arm64) | Mesa (llvmpipe, Zink, or your GPU driver) | compiles on install, ~10 s | verified on GitHub's Ubuntu runners and in a Debian 12 container: 232 passed / 14 skipped, 12/12 examples |
 | Anywhere with Chromium/Electron | ANGLE + SwiftShader (CPU) | point `NODE_WEBGL_LIBEGL` at it | verified on macOS |
+
+## Continuous integration
+
+Every push runs the whole thing — build the addon, compile the TypeScript, run the 246 tests, render the 12 three.js examples and check their pixels — on the three platforms at once, on GitHub's virtual machines with no real GPU attached ([latest run](https://github.com/RenaudRohlinger/node-webgl/actions/workflows/prebuild.yml)):
+
+| Runner | Backend the tests ran on | Tests | Examples | Whole job |
+|---|---|---|---|---|
+| `macos-latest` (Apple silicon) | Metal — *ANGLE Metal Renderer: Apple Paravirtual device* | **246 passed**, 0 skipped, 9.5 s | 12 / 12 in 15 s | **1 min 12 s** |
+| `windows-2022` | Direct3D 11 — *Microsoft Basic Render Driver* (WARP) | **240 passed**, 6 skipped¹, 5.6 s | 12 / 12 in 10 s | **2 min 25 s** |
+| `ubuntu-24.04` | Mesa 24 llvmpipe (`LIBGL_ALWAYS_SOFTWARE=1`) | **232 passed**, 14 skipped², 9.0 s | 12 / 12 | **36 s** |
+
+Nothing is mocked: the suite reads pixels back from the GPU (or the software rasterizer) for shaders, textures, framebuffers, transform feedback, sync objects and every extension. The same tests pass on real hardware (Apple M-series, 246/246 in about 2 s).
+
+¹ Skips on Windows are extensions the WARP adapter does not offer (GPU timer queries, ASTC, a few compressed formats).
+² Skips on Mesa are ANGLE-specific behaviors: exact extension lists, translated shader source, multi-draw, WebGL 1 validation details, and the macOS-only ImageIO codec.
 
 ## Using it
 
