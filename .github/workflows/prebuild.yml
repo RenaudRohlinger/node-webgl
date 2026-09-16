@@ -23,7 +23,7 @@ jobs:
       - run: npm run prebuild
       - run: npm run build:ts
       - name: GPU / backend diagnostics
-        run: node --input-type=module -e "import { createCanvas, getDisplayInfo } from './src/index.ts'; const gl = createCanvas(4, 4).getContext('webgl2'); console.log(JSON.stringify({ ...getDisplayInfo(), extensions: undefined }), gl.getParameter(gl.getExtension('WEBGL_debug_renderer_info').UNMASKED_RENDERER_WEBGL));"
+        run: node scripts/ci-diag.mjs
         continue-on-error: true
       - name: Per-file test run (crash diagnostics)
         run: node --test --test-reporter=spec test/shaders-programs.test.ts

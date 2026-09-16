@@ -167,16 +167,10 @@ interface Frame {
   mcusPerColumn: number;
 }
 
-interface ScanComponentRef {
-  comp: Component;
-  dcTree: HuffmanNode | null;
-  acTree: HuffmanNode | null;
-}
+interface ScanComponentRef { comp: Component; dcTree: HuffmanNode | null; acTree: HuffmanNode | null; }
 
 /** Mutable EOB-run counter, threaded through progressive AC decode calls within a scan. */
-interface EobRun {
-  value: number;
-}
+interface EobRun { value: number }
 
 // --- Marker segment parsers ---
 function parseDQT(buf: Uint8Array, start: number, end: number, quantTables: (Uint16Array | null)[]): void {
@@ -254,13 +248,7 @@ function parseSOF(marker: number, buf: Uint8Array, start: number, end: number): 
   return { width, height, progressive: marker === 0xc2, components, maxH, maxV, mcusPerLine, mcusPerColumn };
 }
 
-interface ParsedSOS {
-  scanComps: ScanComponentRef[];
-  ss: number;
-  se: number;
-  ah: number;
-  al: number;
-}
+interface ParsedSOS { scanComps: ScanComponentRef[]; ss: number; se: number; ah: number; al: number; }
 
 function parseSOS(
   buf: Uint8Array,
@@ -546,14 +534,7 @@ function buildComponentPlane(comp: Component, quantTable: Uint16Array): Uint8Cla
 }
 
 // --- Upsampling + color conversion ---
-interface SampleInfo {
-  plane: Uint8ClampedArray;
-  stride: number;
-  actualW: number;
-  actualH: number;
-  h: number;
-  v: number;
-}
+interface SampleInfo { plane: Uint8ClampedArray; stride: number; actualW: number; actualH: number; h: number; v: number; }
 
 function clampInt(v: number, upper: number): number {
   return v < 0 ? 0 : v >= upper ? upper - 1 : v;
