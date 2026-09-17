@@ -40,7 +40,7 @@ jobs:
       - name: Collect
         run: |
           mkdir -p out/${{ matrix.target }}
-          cp swiftshader/build/libvk_swiftshader.so swiftshader/build/vk_swiftshader_icd.json out/${{ matrix.target }}/
+          cp swiftshader/build/Linux/libvk_swiftshader.so swiftshader/build/Linux/vk_swiftshader_icd.json out/${{ matrix.target }}/
           strip --strip-unneeded out/${{ matrix.target }}/libvk_swiftshader.so
           cat out/${{ matrix.target }}/vk_swiftshader_icd.json; ls -la out/${{ matrix.target }}
       - name: Smoke test (vulkaninfo)
