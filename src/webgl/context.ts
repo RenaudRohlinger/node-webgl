@@ -1674,6 +1674,11 @@ export class WebGLRenderingContextBase {
     this._ready(); // reading another canvas may have switched the current GL context
     if (!img) throw new TypeError('texImage2D: unsupported image source (expected ImageData, Canvas, Image or {width,height,data})');
     if (!canConvertImage(format, type)) { this._error(GL.INVALID_OPERATION); return; }
+    // Per the WebGL spec, ImageBitmap sources ignore the UNPACK_FLIP_Y_WEBGL / UNPACK_PREMULTIPLY_ALPHA_WEBGL /
+    // UNPACK_COLORSPACE_CONVERSION_WEBGL state: createImageBitmap()'s options already settled orientation and alpha.
+    const isBitmap = (source as { _isImageBitmap?: boolean })._isImageBitmap === true;
+    const flipY = isBitmap ? false : this._unpackFlipY;
+    const premultiply = isBitmap ? false : this._unpackPremultiplyAlpha;
     let w = img.width, h = img.height;
     let src: RGBA8Source = img;
     if (width > 0 || height > 0) {
@@ -1691,18 +1696,18 @@ export class WebGLRenderingContextBase {
       w = width; h = height;
     }
     let data: Uint8Array;
-    if (format === GL.RGBA && type === GL.UNSIGNED_BYTE && !this._unpackPremultiplyAlpha) {
+    if (format === GL.RGBA && type === GL.UNSIGNED_BYTE && !premultiply) {
       // Fast path for the common RGBA8 case: upload the decoded pixels as-is (optionally row-flipped).
       const px = src.data;
       const bytes = w * h * 4;
-      if (!this._unpackFlipY) data = px instanceof Uint8Array && px.byteLength === bytes ? px : new Uint8Array(px.buffer, px.byteOffset, bytes);
+      if (!flipY) data = px instanceof Uint8Array && px.byteLength === bytes ? px : new Uint8Array(px.buffer, px.byteOffset, bytes);
       else {
         data = new Uint8Array(bytes);
         const row = w * 4;
         for (let y = 0; y < h; y++) data.set(px.subarray(y * row, (y + 1) * row), (h - 1 - y) * row);
       }
     } else {
-      data = convertImage(src, format, type, this._unpackFlipY, this._unpackPremultiplyAlpha);
+      data = convertImage(src, format, type, flipY, premultiply);
     }
     const restore = this._tightUnpack();
     this._upload(is3D, xoffset >= 0, target, level, internalformat, w, h, depth, border, format, type, data, xoffset, yoffset, zoffset);

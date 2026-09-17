@@ -205,11 +205,13 @@ export async function loadImage(src: string | URL | Uint8Array | ArrayBuffer): P
   return img;
 }
 
-/** ImageBitmap look-alike (decoded RGBA8). */
+/** ImageBitmap look-alike (decoded RGBA8, straight alpha unless created with premultiplyAlpha: 'premultiply'). */
 export class ImageBitmap {
   readonly width: number;
   readonly height: number;
   /** @internal */ _data: Uint8Array | Uint8ClampedArray;
+  /** @internal WebGL ignores UNPACK_FLIP_Y_WEBGL / UNPACK_PREMULTIPLY_ALPHA_WEBGL for bitmaps: the createImageBitmap() options already decided. */
+  readonly _isImageBitmap = true;
   /** @internal */
   constructor(width: number, height: number, data: Uint8Array | Uint8ClampedArray) {
     this.width = width;
