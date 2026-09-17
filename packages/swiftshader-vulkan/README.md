@@ -27,8 +27,8 @@ it with any Vulkan program:
 export VK_DRIVER_FILES="$(node -p "require.resolve('@onirenaud/swiftshader-vulkan/package.json').replace('package.json', 'linux-x64/vk_swiftshader_icd.json')")"
 ```
 
-The package version records the Chromium release the SwiftShader revision was taken from
-(`0.1.0-chromium.152` → Chrome 152, SwiftShader `5b0479bd2d15`). Builds come from
+`package.json` records which Chromium release the SwiftShader revision was taken from
+(`swiftshader.chromium`: Chrome 152, SwiftShader `5b0479bd2d15` for 0.1.0). Builds come from
 [`swiftshader.yml`](../../.github/workflows/swiftshader.yml): `REACTOR_BACKEND=Subzero` on x64
 like Chrome, the LLVM backend on arm64 where Subzero has no code generator.
 
