@@ -1,6 +1,8 @@
 name: swiftshader
-# Builds SwiftShader's Vulkan driver at the revision Chrome bundles and packages it as
-# @onirenaud/swiftshader-vulkan (packages/swiftshader-vulkan). Run manually; publishes when asked to.
+# Packages SwiftShader's Vulkan driver as @onirenaud/swiftshader-vulkan (packages/swiftshader-vulkan).
+# linux-x64 ships the binary from Chrome for Testing (built with Chromium's toolchain; a source build of the
+# same revision renders slightly differently), linux-arm64 is built from the revision that Chrome pins.
+# Run manually; publishes when asked to.
 on:
   workflow_dispatch:
     inputs:
@@ -9,16 +11,29 @@ on:
         type: boolean
         default: false
 env:
+  CHROME_VERSION: 152.0.7977.54
   SWIFTSHADER_REVISION: 5b0479bd2d15058aaa9eb490e364f920ff824a8c
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-24.04, target: linux-x64, backend: Subzero }
-          - { os: ubuntu-24.04-arm, target: linux-arm64, backend: LLVM }
-    runs-on: ${{ matrix.os }}
+  chrome-x64:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Extract from Chrome for Testing
+        run: |
+          curl -fsSL "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip" -o chrome.zip
+          unzip -q chrome.zip chrome-linux64/libvk_swiftshader.so chrome-linux64/vk_swiftshader_icd.json chrome-linux64/ABOUT
+          mkdir -p out/linux-x64
+          cp chrome-linux64/libvk_swiftshader.so chrome-linux64/vk_swiftshader_icd.json out/linux-x64/
+          cat chrome-linux64/ABOUT out/linux-x64/vk_swiftshader_icd.json; sha256sum out/linux-x64/libvk_swiftshader.so; ls -la out/linux-x64
+      - name: Smoke test (vulkaninfo)
+        run: |
+          sudo apt-get update && sudo apt-get install -y vulkan-tools libvulkan1
+          VK_DRIVER_FILES=$PWD/out/linux-x64/vk_swiftshader_icd.json vulkaninfo --summary | grep -E "deviceName|driverName|apiVersion"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swiftshader-linux-x64
+          path: out/
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,27 +47,26 @@ jobs:
           cmake -S swiftshader -B swiftshader/build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-          -DREACTOR_BACKEND=${{ matrix.backend }}
           -DSWIFTSHADER_BUILD_TESTS=OFF -DSWIFTSHADER_BUILD_BENCHMARKS=OFF
           -DSWIFTSHADER_BUILD_PVR=OFF -DSWIFTSHADER_BUILD_WSI_XCB=OFF -DSWIFTSHADER_BUILD_WSI_WAYLAND=OFF
           -DSWIFTSHADER_WARNINGS_AS_ERRORS=OFF
       - run: ninja -C swiftshader/build vk_swiftshader
       - name: Collect
         run: |
-          mkdir -p out/${{ matrix.target }}
-          cp swiftshader/build/Linux/libvk_swiftshader.so swiftshader/build/Linux/vk_swiftshader_icd.json out/${{ matrix.target }}/
-          strip --strip-unneeded out/${{ matrix.target }}/libvk_swiftshader.so
-          cat out/${{ matrix.target }}/vk_swiftshader_icd.json; ls -la out/${{ matrix.target }}
+          mkdir -p out/linux-arm64
+          cp swiftshader/build/Linux/libvk_swiftshader.so swiftshader/build/Linux/vk_swiftshader_icd.json out/linux-arm64/
+          strip --strip-unneeded out/linux-arm64/libvk_swiftshader.so
+          cat out/linux-arm64/vk_swiftshader_icd.json; ls -la out/linux-arm64
       - name: Smoke test (vulkaninfo)
         run: |
           sudo apt-get install -y vulkan-tools libvulkan1
-          VK_DRIVER_FILES=$PWD/out/${{ matrix.target }}/vk_swiftshader_icd.json vulkaninfo --summary | grep -E "deviceName|driverName|apiVersion"
+          VK_DRIVER_FILES=$PWD/out/linux-arm64/vk_swiftshader_icd.json vulkaninfo --summary | grep -E "deviceName|driverName|apiVersion"
       - uses: actions/upload-artifact@v4
         with:
-          name: swiftshader-${{ matrix.target }}
+          name: swiftshader-linux-arm64
           path: out/
   publish:
-    needs: build
+    needs: [chrome-x64, build-arm64]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +74,7 @@ jobs:
         with: { node-version: 22, registry-url: 'https://registry.npmjs.org' }
       - uses: actions/download-artifact@v4
         with:
-          pattern: swiftshader-*
+          pattern: swiftshader-linux-*
           merge-multiple: true
           path: packages/swiftshader-vulkan
       - run: ls -laR packages/swiftshader-vulkan && node -e "import('./packages/swiftshader-vulkan/index.js').then(m => console.log(m.icdPath()))"
