@@ -2,6 +2,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeGL, dispose, program, drawFullscreenQuad, readPixel, readPixels, assertPixel, assertNoError, clearErrors, GLSL100, GLSL300 } from './helpers.ts';
+import { getDisplayInfo } from '../src/index.ts';
 
 const INVALID_ENUM = 0x0500;
 
@@ -509,6 +510,27 @@ describe('capabilities, hints and flushes', () => {
     assertPixel(readPixel(gl, 4, 8), [128, 0, 255, 255], 2);
     assertPixel(readPixel(gl, 12, 8), [0, 0, 0, 0], 0);
     clearErrors(gl);
+    dispose(gl);
+  });
+});
+
+describe('desktop OpenGL (Mesa without ANGLE)', () => {
+  test('wide points centred outside the viewport are dropped, as in a browser', (t) => {
+    if (getDisplayInfo()?.api !== 'gl') return t.skip('needs a desktop OpenGL context');
+    // Mesa's ES contexts clip wide points after widening them (a sprite whose centre is off-screen still shows
+    // its visible part); its desktop contexts, which Chrome's ANGLE drives on Linux, drop the whole point.
+    const gl = makeGL(2, 16, 16);
+    const p = program(gl, `#version 300 es
+in vec3 a_position;
+void main() { gl_PointSize = 8.0; gl_Position = vec4(a_position, 1.0); }`, FS3);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    drawPrim(gl, p, gl.POINTS, [-1 - 2 / 16, 0, 0], [1, 1, 0, 1], 1); // centre one pixel past the left edge
+    assertNoError(gl, 'drawArrays(POINTS)');
+    assertPixel(readPixel(gl, 0, 8), [0, 0, 0, 255], 0, 'no sliver of the point along the edge');
+    assertPixel(readPixel(gl, 2, 8), [0, 0, 0, 255], 0, 'no sliver of the point along the edge');
+    drawPrim(gl, p, gl.POINTS, [-1 + 2 / 16, 0, 0], [1, 1, 0, 1], 1); // centre one pixel inside
+    assertPixel(readPixel(gl, 0, 8), [255, 255, 0, 255], 2, 'a point centred inside reaches the edge');
     dispose(gl);
   });
 });

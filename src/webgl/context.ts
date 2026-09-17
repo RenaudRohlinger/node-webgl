@@ -69,10 +69,18 @@ const TEXTURE_MAX_ANISOTROPY_EXT = 0x84fe;
 const TEXTURE_IMMUTABLE_FORMAT = 0x912f;
 const TEXTURE_IMMUTABLE_LEVELS = 0x82df;
 const HALF_FLOAT_OES = 0x8d61;
+const SRGB_EXT = 0x8c40, SRGB_ALPHA_EXT = 0x8c42;
 const DEPTH24_STENCIL8 = 0x88f0;
 const SRGB8_ALPHA8_EXT = 0x8c43;
 const RGBA32F_EXT = 0x8814, RGB32F_EXT = 0x8815, RGBA16F_EXT = 0x881a, RGB16F_EXT = 0x881b;
 const TIME_ELAPSED_EXT = 0x88bf, TIMESTAMP_EXT = 0x8e28;
+const R16_SNORM_EXT = 0x8f98, RG16_SNORM_EXT = 0x8f99, RGBA16_SNORM_EXT = 0x8f9b;
+/** Formats WebGL 1 / 2 always accept as color attachments (extension-gated formats are handled in _esColorRenderable). */
+const ES_COLOR_RENDERABLE = new Set<number>([
+  GL.RGBA, GL.RGB, GL.R8, GL.RG8, GL.RGB8, GL.RGB565, GL.RGBA4, GL.RGB5_A1, GL.RGBA8, GL.RGB10_A2, GL.RGB10_A2UI, GL.SRGB8_ALPHA8,
+  GL.R8I, GL.R8UI, GL.R16I, GL.R16UI, GL.R32I, GL.R32UI, GL.RG8I, GL.RG8UI, GL.RG16I, GL.RG16UI, GL.RG32I, GL.RG32UI,
+  GL.RGBA8I, GL.RGBA8UI, GL.RGBA16I, GL.RGBA16UI, GL.RGBA32I, GL.RGBA32UI,
+]);
 const QUERY_RESULT_EXT = 0x8866, QUERY_RESULT_AVAILABLE_EXT = 0x8867;
 const FRAMEBUFFER_DEFAULT = 0x8218;
 const MAX_CLIENT_WAIT_TIMEOUT = 1_000_000_000; // 1s in ns; blocking is fine off the main thread of a browser
@@ -140,6 +148,10 @@ export class WebGLRenderingContextBase {
   /** @internal GL ES major version of the underlying context (a WebGL 1 context may run on ES 3 with non-ANGLE drivers). */ _glMajor = 3;
   /** @internal */ _es3 = true;
   /** @internal EGL implementation is ANGLE (WebGL-compat validation, requestable extensions). */ _isAngle = true;
+  /** @internal Desktop OpenGL core-profile context (Mesa without ANGLE): ES defaults and dropped enums are emulated. */ _desktopGL = false;
+  /** @internal Core profiles have no default vertex array; this one stands in for WebGL's. */ _defaultVao = 0;
+  /** @internal GENERATE_MIPMAP_HINT is not a core-profile enum: tracked here on desktop GL. */ _mipmapHint: number = GL.DONT_CARE;
+  /** @internal Textures carrying the swizzle that emulates LUMINANCE / ALPHA storage on desktop GL. */ _swizzled = new Set<number>();
   /** @internal which instanced-drawing entry points exist. */ _instanced: 'core' | 'angle' | 'ext' = 'core';
   /** @internal */ readonly _attrs: Required<WebGLContextAttributes>;
   /** @internal */ _canvas: CanvasLike | null;
@@ -222,14 +234,18 @@ export class WebGLRenderingContextBase {
     });
     refreshNativeFunctions();
     currentContext = this;
-    this._glEnabled = new Set((n.getString(GLX.EXTENSIONS) ?? '').split(' ').filter(Boolean));
-    this._isAngle = getDisplayInfo()?.angle ?? true;
+    const display = getDisplayInfo();
+    this._isAngle = display?.angle ?? true;
+    this._desktopGL = display?.api === 'gl';
+    this._glEnabled = this._queryGLExtensions();
     const requestable = this._isAngle ? n.getString(REQUESTABLE_EXTENSIONS_ANGLE) : null;
     this._glRequestable = new Set((requestable ?? '').split(' ').filter(Boolean));
     const versionMatch = /OpenGL ES(?:-CM)? (\d+)\.(\d+)/.exec(n.getString(GL.VERSION) ?? '');
-    this._glMajor = versionMatch ? Number(versionMatch[1]) : (this._isWebGL2 ? 3 : 2);
+    // A desktop core profile (3.3+ with ARB_ES3_compatibility, see the native probe) covers everything ES 3.0 needs.
+    this._glMajor = this._desktopGL ? 3 : versionMatch ? Number(versionMatch[1]) : (this._isWebGL2 ? 3 : 2);
     this._es3 = this._glMajor >= 3;
     n.getError(); // clear a possible INVALID_ENUM on non-ANGLE drivers
+    if (this._desktopGL) this._initDesktopGL();
 
     // Internal extensions the default-framebuffer emulation needs on ES 2.0.
     if (!this._es3) {
@@ -280,6 +296,176 @@ export class WebGLRenderingContextBase {
   /** @internal Moves errors pending in the driver into the WebGL error queue. */
   _flushErrors(): void {
     for (let e = this._n.getError(); e !== GL.NO_ERROR; e = this._n.getError()) this._error(e);
+  }
+
+  /** @internal GL_EXTENSIONS of the current context (desktop core profiles only answer glGetStringi). */
+  _queryGLExtensions(): Set<string> {
+    const n = this._n;
+    const joined = n.getString(GLX.EXTENSIONS);
+    if (joined !== null && joined !== undefined) return new Set(joined.split(' ').filter(Boolean));
+    n.getError();
+    const out = new Set<string>();
+    for (let i = 0, count = this._getInt(GLX.NUM_EXTENSIONS); i < count; i++) {
+      const s = n.getStringi(GLX.EXTENSIONS, i);
+      if (s) out.add(s);
+    }
+    return out;
+  }
+
+  /**
+   * @internal A desktop OpenGL core profile is what Chrome's ANGLE drives on Mesa, so it rasterizes
+   * exactly like a Linux browser (wide points and lines clip by their centers and endpoints where
+   * Mesa's ES contexts clip them after widening). It lacks the state GLES has implicitly: a default
+   * vertex array, shader-written point sizes, seamless cube maps, sRGB encoding on sRGB framebuffers
+   * and the fixed primitive restart index. GLSL ES shaders compile through ARB_ES3_compatibility.
+   */
+  _initDesktopGL(): void {
+    const n = this._n;
+    n.genVertexArrays(1, this._u32);
+    this._defaultVao = this._u32[0];
+    n.bindVertexArray(this._defaultVao);
+    n.enable(GLX.PROGRAM_POINT_SIZE);
+    n.enable(GLX.TEXTURE_CUBE_MAP_SEAMLESS);
+    n.enable(GLX.FRAMEBUFFER_SRGB);
+    n.enable(GLX.PRIMITIVE_RESTART_FIXED_INDEX);
+    this._mipmapHint = GL.DONT_CARE;
+    this._swizzled.clear();
+    n.getError();
+  }
+
+  /** @internal Core profiles dropped RED_BITS & co.: read them off the draw framebuffer's attachments. */
+  _attachmentBits(pname: number): number {
+    const n = this._n;
+    const attachment = pname === GL.DEPTH_BITS ? GL.DEPTH_ATTACHMENT : pname === GL.STENCIL_BITS ? GL.STENCIL_ATTACHMENT : GL.COLOR_ATTACHMENT0;
+    const size = pname === GL.RED_BITS ? GLX.FRAMEBUFFER_ATTACHMENT_RED_SIZE : pname === GL.GREEN_BITS ? GLX.FRAMEBUFFER_ATTACHMENT_GREEN_SIZE
+      : pname === GL.BLUE_BITS ? GLX.FRAMEBUFFER_ATTACHMENT_BLUE_SIZE : pname === GL.ALPHA_BITS ? GLX.FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE
+      : pname === GL.DEPTH_BITS ? GLX.FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE : GLX.FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE;
+    n.getFramebufferAttachmentParameteriv(DRAW_FRAMEBUFFER, attachment, GL.FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, this._i32);
+    let bits = 0;
+    if (this._i32[0] !== GL.NONE) {
+      n.getFramebufferAttachmentParameteriv(DRAW_FRAMEBUFFER, attachment, size, this._i32);
+      bits = this._i32[0];
+    }
+    n.getError();
+    return bits;
+  }
+
+  /**
+   * @internal Desktop GL core profiles have no LUMINANCE / ALPHA textures, no HALF_FLOAT_OES and no
+   * "unsized float" formats. Returns the sized-format call ANGLE would make instead, plus the texture
+   * swizzle that recreates how ES samples luminance and alpha storage.
+   */
+  _desktopTexArgs(internalformat: number, format: number, type: number): [number, number, number, number[] | null] {
+    if (type === HALF_FLOAT_OES) type = GL.HALF_FLOAT;
+    switch (format) {
+      case GL.LUMINANCE: case GL.ALPHA: format = GL.RED; break;
+      case GL.LUMINANCE_ALPHA: format = GL.RG; break;
+      case SRGB_EXT: format = GL.RGB; break;
+      case SRGB_ALPHA_EXT: format = GL.RGBA; break;
+    }
+    const fl = type === GL.FLOAT, hf = type === GL.HALF_FLOAT;
+    let swizzle: number[] | null = null;
+    switch (internalformat) {
+      case GL.LUMINANCE: swizzle = [GL.RED, GL.RED, GL.RED, GL.ONE]; internalformat = fl ? GL.R32F : hf ? GL.R16F : GL.R8; break;
+      case GL.ALPHA: swizzle = [GL.ZERO, GL.ZERO, GL.ZERO, GL.RED]; internalformat = fl ? GL.R32F : hf ? GL.R16F : GL.R8; break;
+      case GL.LUMINANCE_ALPHA: swizzle = [GL.RED, GL.RED, GL.RED, GLX.GREEN]; internalformat = fl ? GL.RG32F : hf ? GL.RG16F : GL.RG8; break;
+      case GL.RGBA:
+        internalformat = fl ? GL.RGBA32F : hf ? GL.RGBA16F : type === GL.UNSIGNED_SHORT_4_4_4_4 ? GL.RGBA4 : type === GL.UNSIGNED_SHORT_5_5_5_1 ? GL.RGB5_A1
+          : type === GL.UNSIGNED_INT_2_10_10_10_REV ? GL.RGB10_A2 : GL.RGBA8;
+        break;
+      case GL.RGB: internalformat = fl ? GL.RGB32F : hf ? GL.RGB16F : type === GL.UNSIGNED_SHORT_5_6_5 ? GL.RGB565 : GL.RGB8; break;
+      case GL.RED: internalformat = fl ? GL.R32F : hf ? GL.R16F : GL.R8; break;
+      case GL.RG: internalformat = fl ? GL.RG32F : hf ? GL.RG16F : GL.RG8; break;
+      case SRGB_EXT: internalformat = GL.SRGB8; break;
+      case SRGB_ALPHA_EXT: internalformat = GL.SRGB8_ALPHA8; break;
+      case GL.DEPTH_COMPONENT: internalformat = type === GL.UNSIGNED_SHORT ? GL.DEPTH_COMPONENT16 : fl ? GL.DEPTH_COMPONENT32F : GL.DEPTH_COMPONENT24; break;
+      case GL.DEPTH_STENCIL: internalformat = type === GL.FLOAT_32_UNSIGNED_INT_24_8_REV ? GL.DEPTH32F_STENCIL8 : DEPTH24_STENCIL8; break;
+    }
+    return [internalformat, format, type, swizzle];
+  }
+
+  /**
+   * @internal After an image definition on desktop GL: records the WebGL internal format on the texture
+   * bound to `target` (for the ES color-renderability check) and sets or clears the swizzle emulating
+   * LUMINANCE / ALPHA storage.
+   */
+  _afterTexDefine(target: number, internalformat: number, swizzle: number[] | null): void {
+    const cube = target >= GL.TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL.TEXTURE_CUBE_MAP_NEGATIVE_Z;
+    const bindTarget = cube ? GL.TEXTURE_CUBE_MAP : target;
+    const binding = bindTarget === GL.TEXTURE_2D ? GL.TEXTURE_BINDING_2D : bindTarget === GL.TEXTURE_CUBE_MAP ? GL.TEXTURE_BINDING_CUBE_MAP
+      : bindTarget === GL.TEXTURE_3D ? GL.TEXTURE_BINDING_3D : bindTarget === GL.TEXTURE_2D_ARRAY ? GL.TEXTURE_BINDING_2D_ARRAY : 0;
+    if (!binding) return;
+    const id = this._getInt(binding);
+    const texture = this._textures.get(id);
+    if (texture) texture._format = internalformat;
+    if (swizzle) this._swizzled.add(id);
+    else if (this._swizzled.delete(id)) swizzle = [GL.RED, GLX.GREEN, GLX.BLUE, GL.ALPHA];
+    else return;
+    const n = this._n;
+    n.texParameteri(bindTarget, GLX.TEXTURE_SWIZZLE_R, swizzle[0]);
+    n.texParameteri(bindTarget, GLX.TEXTURE_SWIZZLE_G, swizzle[1]);
+    n.texParameteri(bindTarget, GLX.TEXTURE_SWIZZLE_B, swizzle[2]);
+    n.texParameteri(bindTarget, GLX.TEXTURE_SWIZZLE_A, swizzle[3]);
+  }
+
+  /** @internal Records the WebGL internal format of the bound renderbuffer (desktop GL only). */
+  _afterRenderbufferStorage(internalformat: number): void {
+    const rb = this._renderbuffers.get(this._getInt(GL.RENDERBUFFER_BINDING));
+    if (rb) rb._format = internalformat;
+  }
+
+  /** @internal Forgets a deleted texture or renderbuffer everywhere it was attached (desktop GL only). */
+  _untrackAttachments(object: WebGLTexture | WebGLRenderbuffer): void {
+    for (const fb of this._framebuffers.values()) {
+      for (const [attachment, attached] of fb._color) if (attached === object) fb._color.delete(attachment);
+    }
+  }
+
+  /** @internal Tracks the color attachments of a bound framebuffer (desktop GL only). */
+  _trackAttachment(target: number, attachment: number, object: WebGLTexture | WebGLRenderbuffer | null): void {
+    if (attachment < GL.COLOR_ATTACHMENT0 || attachment > GL.COLOR_ATTACHMENT15) return;
+    const fb = target === READ_FRAMEBUFFER ? this._readFramebuffer : this._drawFramebuffer;
+    if (!fb) return;
+    if (object) fb._color.set(attachment, object); else fb._color.delete(attachment);
+  }
+
+  /**
+   * @internal Desktop GL renders into formats WebGL (OpenGL ES) calls incomplete: RGB16F / RGB32F,
+   * SRGB8, snorm and luminance storage, floats without the color-buffer-float extensions... ANGLE
+   * refuses them; so does this, on the formats recorded by _afterTexDefine / _afterRenderbufferStorage.
+   */
+  _esColorRenderable(fb: WebGLFramebuffer): boolean {
+    for (const object of fb._color.values()) {
+      const f = object._format;
+      if (!f || ES_COLOR_RENDERABLE.has(f)) continue;
+      const ext = (...names: string[]) => names.some((e) => this._extensions.has(e));
+      switch (f) {
+        case GL.R32F: case GL.RG32F: case GL.RGBA32F:
+          if (this._isWebGL2 ? ext('EXT_color_buffer_float') : ext('WEBGL_color_buffer_float', 'OES_texture_float')) continue;
+          return false;
+        case RGB32F_EXT:
+          if (!this._isWebGL2 && ext('WEBGL_color_buffer_float', 'OES_texture_float')) continue;
+          return false;
+        case GL.R16F: case GL.RG16F: case GL.RGBA16F: case GL.R11F_G11F_B10F:
+          if (ext('EXT_color_buffer_float', 'EXT_color_buffer_half_float', 'OES_texture_half_float')) continue;
+          return false;
+        case RGB16F_EXT:
+          if (ext('EXT_color_buffer_half_float', 'OES_texture_half_float')) continue;
+          return false;
+        case GL.R8_SNORM: case GL.RG8_SNORM: case GL.RGBA8_SNORM: case R16_SNORM_EXT: case RG16_SNORM_EXT: case RGBA16_SNORM_EXT:
+          if (ext('EXT_render_snorm')) continue;
+          return false;
+        case GL.RGB9_E5:
+          if (ext('WEBGL_render_shared_exponent')) continue;
+          return false;
+        case SRGB_ALPHA_EXT:
+          if (ext('EXT_sRGB')) continue;
+          return false;
+        default:
+          return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -606,6 +792,7 @@ export class WebGLRenderingContextBase {
     if (!this._isAngle) {
       for (const a of e.alt ?? []) {
         if (a === 'core3') { if (this._es3) return []; continue; }
+        if (a === 'gl') { if (this._desktopGL) return []; continue; }
         if (ok(a.gl, a.fns)) return a.gl;
       }
     }
@@ -664,6 +851,19 @@ export class WebGLRenderingContextBase {
       case GL.MAX_CLIENT_WAIT_TIMEOUT_WEBGL:
         if (!this._isWebGL2) { this._error(GL.INVALID_ENUM); return null; }
         return MAX_CLIENT_WAIT_TIMEOUT;
+      // Desktop core profiles dropped these ES queries.
+      case GL.GENERATE_MIPMAP_HINT:
+        if (this._desktopGL) return this._mipmapHint;
+        break;
+      case GL.RED_BITS: case GL.GREEN_BITS: case GL.BLUE_BITS: case GL.ALPHA_BITS: case GL.DEPTH_BITS: case GL.STENCIL_BITS:
+        if (this._desktopGL) return this._attachmentBits(pname);
+        break;
+      case GL.ALIASED_POINT_SIZE_RANGE:
+        if (this._desktopGL) { const out = new Float32Array(2); n.getFloatv(GLX.POINT_SIZE_RANGE, out); return out; }
+        break;
+      case GL.IMPLEMENTATION_COLOR_READ_TYPE:
+        if (!this._isWebGL2 && !this._isAngle) { const t = this._getInt(pname) >>> 0; return t === GL.HALF_FLOAT ? HALF_FLOAT_OES : t; }
+        break;
     }
     const kind = PARAMETER_KINDS.get(pname);
     if (!kind) { this._error(GL.INVALID_ENUM); return null; }
@@ -679,6 +879,7 @@ export class WebGLRenderingContextBase {
       case EXT_PNAME.UNMASKED_VENDOR_WEBGL: return n.getString(GL.VENDOR);
       case EXT_PNAME.UNMASKED_RENDERER_WEBGL: return n.getString(GL.RENDERER);
       case EXT_PNAME.TIMESTAMP_EXT: n.getInteger64v(pname, this._i64); return Number(this._i64[0]);
+      case EXT_PNAME.GPU_DISJOINT_EXT: if (this._desktopGL) return false; break;
     }
     switch (kind) {
       case 'bool': n.getBooleanv(pname, this._u8); return this._u8[0] !== 0;
@@ -1014,7 +1215,11 @@ export class WebGLRenderingContextBase {
   blendEquationSeparate(modeRGB: number, modeAlpha: number): void { if (this._ready()) this._n.blendEquationSeparate(modeRGB, modeAlpha); }
   blendFunc(sfactor: number, dfactor: number): void { if (this._ready()) this._n.blendFunc(sfactor, dfactor); }
   blendFuncSeparate(srcRGB: number, dstRGB: number, srcAlpha: number, dstAlpha: number): void { if (this._ready()) this._n.blendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha); }
-  clear(mask: number): void { if (this._ready()) this._n.clear(mask); }
+  clear(mask: number): void {
+    if (!this._ready()) return;
+    if (this._desktopGL && this._drawFramebuffer && !this._esColorRenderable(this._drawFramebuffer)) { this._error(GL.INVALID_FRAMEBUFFER_OPERATION); return; }
+    this._n.clear(mask);
+  }
   clearColor(r: number, g: number, b: number, a: number): void { if (this._ready()) this._n.clearColor(r, g, b, a); }
   clearDepth(depth: number): void { if (this._ready()) this._n.clearDepthf(depth); }
   clearStencil(s: number): void { if (this._ready()) this._n.clearStencil(s); }
@@ -1033,7 +1238,15 @@ export class WebGLRenderingContextBase {
   finish(): void { if (this._ready()) this._n.finish(); }
   flush(): void { if (this._ready()) this._n.flush(); }
   frontFace(mode: number): void { if (this._ready()) this._n.frontFace(mode); }
-  hint(target: number, mode: number): void { if (this._ready()) this._n.hint(target, mode); }
+  hint(target: number, mode: number): void {
+    if (!this._ready()) return;
+    if (this._desktopGL && target === GL.GENERATE_MIPMAP_HINT) {
+      if (mode !== GL.FASTEST && mode !== GL.NICEST && mode !== GL.DONT_CARE) { this._error(GL.INVALID_ENUM); return; }
+      this._mipmapHint = mode;
+      return;
+    }
+    this._n.hint(target, mode);
+  }
   lineWidth(width: number): void { if (this._ready()) this._n.lineWidth(width); }
   polygonOffset(factor: number, units: number): void { if (this._ready()) this._n.polygonOffset(factor, units); }
   sampleCoverage(value: number, invert: boolean): void { if (this._ready()) this._n.sampleCoverage(value, invert); }
@@ -1194,19 +1407,26 @@ export class WebGLRenderingContextBase {
 
   checkFramebufferStatus(target: number): number {
     if (!this._ready()) return 0;
-    return this._n.checkFramebufferStatus(target);
+    const status = this._n.checkFramebufferStatus(target);
+    if (status === GL.FRAMEBUFFER_COMPLETE && this._desktopGL) {
+      const fb = target === READ_FRAMEBUFFER ? this._readFramebuffer : this._drawFramebuffer;
+      if (fb && !this._esColorRenderable(fb)) return GL.FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
+    }
+    return status;
   }
 
   framebufferRenderbuffer(target: number, attachment: number, rbTarget: number, rb: WebGLRenderbuffer | null): void {
     if (!this._ready() || !this._valid(rb, WebGLRenderbuffer, true)) return;
     if (this._defaultBound(target)) { this._error(GL.INVALID_OPERATION); return; }
     this._n.framebufferRenderbuffer(target, attachment, rbTarget, rb ? rb._id : 0);
+    if (this._desktopGL) this._trackAttachment(target, attachment, rb);
   }
 
   framebufferTexture2D(target: number, attachment: number, textarget: number, texture: WebGLTexture | null, level: number): void {
     if (!this._ready() || !this._valid(texture, WebGLTexture, true)) return;
     if (this._defaultBound(target)) { this._error(GL.INVALID_OPERATION); return; }
     this._n.framebufferTexture2D(target, attachment, textarget, texture ? texture._id : 0, level);
+    if (this._desktopGL) this._trackAttachment(target, attachment, texture);
   }
 
   createRenderbuffer(): WebGLRenderbuffer | null {
@@ -1220,6 +1440,7 @@ export class WebGLRenderingContextBase {
   deleteRenderbuffer(rb: WebGLRenderbuffer | null): void {
     if (!this._ready() || !this._deletable(rb, WebGLRenderbuffer)) return;
     this._renderbuffers.delete(rb!._id);
+    if (this._desktopGL) this._untrackAttachments(rb!);
     this._u32[0] = rb!._id;
     this._n.deleteRenderbuffers(1, this._u32);
   }
@@ -1248,6 +1469,7 @@ export class WebGLRenderingContextBase {
     }
     this._n.renderbufferStorage(target, internalformat, width, height);
     if (!this._isAngle) { this._n.getIntegerv(GL.RENDERBUFFER_BINDING, this._i32); this._initDepthStencilStorage('renderbuffer', this._i32[0], internalformat); }
+    if (this._desktopGL) this._afterRenderbufferStorage(internalformat);
   }
 
   // ---------------------------------------------------------------------------
@@ -1281,6 +1503,8 @@ export class WebGLRenderingContextBase {
     shader._source = source;
     // Extensions WebGL names after ANGLE keep their EXT spelling on other drivers.
     if (!this._isAngle) source = source.replace(/#extension\s+GL_ANGLE_clip_cull_distance\b/g, '#extension GL_EXT_clip_cull_distance');
+    // A desktop context compiles a shader without #version as GLSL 1.10; WebGL's default is GLSL ES 1.00.
+    if (this._desktopGL && !/^[ \t]*#[ \t]*version\b/m.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ''))) source = '#version 100\n' + source;
     this._n.shaderSource(shader._id, 1, [source], null);
   }
 
@@ -1425,6 +1649,7 @@ export class WebGLRenderingContextBase {
   _canDraw(): boolean {
     if (!this._ready()) return false;
     if (this._currentProgram === null) { this._error(GL.INVALID_OPERATION); return false; }
+    if (this._desktopGL && this._drawFramebuffer && !this._esColorRenderable(this._drawFramebuffer)) { this._error(GL.INVALID_FRAMEBUFFER_OPERATION); return false; }
     return true;
   }
   drawArrays(mode: number, first: number, count: number): void { if (this._canDraw()) this._n.drawArrays(mode, first, count); }
@@ -1470,6 +1695,8 @@ export class WebGLRenderingContextBase {
     this._vertexArrays.delete(vao!._id);
     this._u32[0] = vao!._id;
     if (this._es3) this._n.deleteVertexArrays(1, this._u32); else this._n.deleteVertexArraysOES(1, this._u32);
+    // Deleting the bound array leaves a core profile with none; WebGL falls back to the default one.
+    if (this._defaultVao && this._getInt(GL.VERTEX_ARRAY_BINDING) === 0) this._n.bindVertexArray(this._defaultVao);
   }
   /** @internal */
   _isVertexArray(vao: unknown): boolean {
@@ -1479,7 +1706,8 @@ export class WebGLRenderingContextBase {
   /** @internal */
   _bindVertexArray(vao: WebGLVertexArrayObject | null): void {
     if (!this._ready() || !this._valid(vao, WebGLVertexArrayObject, true)) return;
-    if (this._es3) this._n.bindVertexArray(vao ? vao._id : 0); else this._n.bindVertexArrayOES(vao ? vao._id : 0);
+    const id = vao ? vao._id : this._defaultVao;
+    if (this._es3) this._n.bindVertexArray(id); else this._n.bindVertexArrayOES(id);
   }
 
   // ---------------------------------------------------------------------------
@@ -1588,6 +1816,8 @@ export class WebGLRenderingContextBase {
   deleteTexture(texture: WebGLTexture | null): void {
     if (!this._ready() || !this._deletable(texture, WebGLTexture)) return;
     this._textures.delete(texture!._id);
+    this._swizzled.delete(texture!._id);
+    if (this._desktopGL) this._untrackAttachments(texture!);
     this._u32[0] = texture!._id;
     this._n.deleteTextures(1, this._u32);
   }
@@ -1608,7 +1838,11 @@ export class WebGLRenderingContextBase {
 
   copyTexImage2D(target: number, level: number, internalformat: number, x: number, y: number, width: number, height: number, border: number): void {
     if (!this._ready()) return;
+    let swizzle: number[] | null = null;
+    const defined = internalformat;
+    if (this._desktopGL) [internalformat, , , swizzle] = this._desktopTexArgs(internalformat, GL.RGBA, GL.UNSIGNED_BYTE);
     this._withResolvedRead(() => this._n.copyTexImage2D(target, level, internalformat, x, y, width, height, border));
+    if (this._desktopGL) this._afterTexDefine(target, defined, swizzle);
   }
 
   copyTexSubImage2D(target: number, level: number, xoffset: number, yoffset: number, x: number, y: number, width: number, height: number): void {
@@ -1672,11 +1906,15 @@ export class WebGLRenderingContextBase {
     format: number, type: number, offset: number, is3D: boolean, xoffset = -1, yoffset = 0, zoffset = 0): void {
     if (this._unpackFlipY || this._unpackPremultiplyAlpha) { this._error(GL.INVALID_OPERATION); return; }
     const n = this._n;
+    let swizzle: number[] | null = null;
+    const defined = internalformat;
+    if (this._desktopGL) [internalformat, format, type, swizzle] = this._desktopTexArgs(internalformat, format, type);
     if (is3D) {
       if (xoffset >= 0) n.texSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, offset);
       else n.texImage3D(target, level, internalformat, width, height, depth, border, format, type, offset);
     } else if (xoffset >= 0) n.texSubImage2D(target, level, xoffset, yoffset, width, height, format, type, offset);
     else n.texImage2D(target, level, internalformat, width, height, border, format, type, offset);
+    if (this._desktopGL && xoffset < 0) this._afterTexDefine(target, defined, swizzle);
   }
 
   /** @internal ArrayBufferView (or null) upload. xoffset >= 0 selects the Sub variant. */
@@ -1686,8 +1924,12 @@ export class WebGLRenderingContextBase {
     const sub = xoffset >= 0;
     if (view === null) {
       if (sub) { this._error(GL.INVALID_VALUE); return; }
+      let swizzle: number[] | null = null;
+      const defined = internalformat;
+      if (this._desktopGL) [internalformat, format, type, swizzle] = this._desktopTexArgs(internalformat, format, type);
       if (is3D) n.texImage3D(target, level, internalformat, width, height, depth, border, format, type, null);
       else n.texImage2D(target, level, internalformat, width, height, border, format, type, null);
+      if (this._desktopGL) this._afterTexDefine(target, defined, swizzle);
       this._initDepthStencilTexture(target, internalformat, 1, is3D ? depth : 0, level);
       return;
     }
@@ -1716,6 +1958,9 @@ export class WebGLRenderingContextBase {
     border: number, format: number, type: number, data: Uint8Array, xoffset: number, yoffset: number, zoffset: number): void {
     const n = this._n;
     const robust = hasNativeFunction('glTexImage2DRobustANGLE');
+    let swizzle: number[] | null = null;
+    const defined = internalformat;
+    if (this._desktopGL) [internalformat, format, type, swizzle] = this._desktopTexArgs(internalformat, format, type);
     if (is3D) {
       if (sub) {
         if (robust) n.texSubImage3DRobustANGLE(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, data.byteLength, data);
@@ -1727,6 +1972,7 @@ export class WebGLRenderingContextBase {
       else n.texSubImage2D(target, level, xoffset, yoffset, width, height, format, type, data);
     } else if (robust) n.texImage2DRobustANGLE(target, level, internalformat, width, height, border, format, type, data.byteLength, data);
     else n.texImage2D(target, level, internalformat, width, height, border, format, type, data);
+    if (this._desktopGL && !sub) this._afterTexDefine(target, defined, swizzle);
   }
 
   /** @internal Image-source upload (ImageData / Canvas / Image / {width,height,data}). width<=0 means "whole image". */
@@ -1791,6 +2037,7 @@ export class WebGLRenderingContextBase {
     const bytes = this._compressedBytes(data, srcOffsetOrOffset, srcLengthOverride);
     if (!bytes) return;
     this._n.compressedTexImage2D(target, level, internalformat, width, height, border, bytes.byteLength, bytes);
+    if (this._desktopGL) this._afterTexDefine(target, internalformat, null);
   }
 
   compressedTexSubImage2D(target: number, level: number, xoffset: number, yoffset: number, width: number, height: number, format: number,
@@ -1828,6 +2075,7 @@ export class WebGLRenderingContextBase {
   readPixels(x: number, y: number, width: number, height: number, format: number, type: number, pixels: ArrayBufferView | number | null, dstOffset = 0): void {
     if (!this._ready()) return;
     const n = this._n;
+    if (this._desktopGL && type === HALF_FLOAT_OES) type = GL.HALF_FLOAT;
     if (typeof pixels === 'number') {
       if (!this._isWebGL2) throw new TypeError('readPixels: PBO overload requires WebGL 2');
       this._withResolvedRead(() => n.readPixels(x, y, width, height, format, type, pixels));

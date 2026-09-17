@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -316,15 +317,35 @@ inline std::string OptStr(napi_env env, napi_value obj, const char* name, const 
 // Generated: GL function table, loader, wrappers and property descriptors.
 #include "gl_bindings.inc"
 
-// Drops extension entry points whose extension the driver does not advertise. Needed for non-ANGLE
-// EGL implementations: Mesa's eglGetProcAddress returns a callable no-op stub for any "gl*" name.
-void PruneUnadvertisedExtensions(const char* glExtensions) {
-  std::string exts = std::string(" ") + (glExtensions ? glExtensions : "") + " ";
-  for (size_t i = 0; i < kGLBindingCount; i++) {
-    const char* ext = kGLFunctionExts[i];
-    if (!ext || !*ext) continue;
-    if (exts.find(std::string(" ") + ext + " ") == std::string::npos) SetGLFunction(i, nullptr);
+#ifndef GL_NUM_EXTENSIONS
+#define GL_NUM_EXTENSIONS 0x821D
+#endif
+#ifndef EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT
+#define EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT 0x00000001
+#endif
+
+// GL_EXTENSIONS of the current context. Core-profile desktop contexts only answer glGetStringi;
+// ES 2.0 contexts only answer glGetString.
+std::string CurrentGLExtensions(PFNGLGETSTRINGPROC getString, PFNGLGETSTRINGIPROC getStringi,
+                                PFNGLGETINTEGERVPROC getIntegerv, PFNGLGETERRORPROC getError) {
+  std::string out;
+  if (getStringi && getIntegerv) {
+    GLint count = 0;
+    getIntegerv(GL_NUM_EXTENSIONS, &count);
+    if (getError) getError();
+    for (GLint i = 0; i < count; i++) {
+      const char* s = (const char*)getStringi(GL_EXTENSIONS, i);
+      if (!s) continue;
+      if (!out.empty()) out += ' ';
+      out += s;
+    }
   }
+  if (out.empty() && getString) {
+    const char* s = (const char*)getString(GL_EXTENSIONS);
+    if (s) out = s;
+    if (getError) getError();
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -343,6 +364,10 @@ struct Display {
   bool surfaceless = false;
   bool glLoaded = false;
   bool isAngle = false;
+  /** Client API of every context: "gles", or "gl" for a desktop OpenGL core profile (Mesa and other non-ANGLE EGLs). */
+  std::string api = "gles";
+  /** Desktop OpenGL version found by the probe, major * 10 + minor (45 = 4.5); 0 for ES. */
+  int glVersion = 0;
   std::string backend;
   std::string extensions;
   std::string vendor;
@@ -356,6 +381,43 @@ struct Display {
 Display g_display;
 std::vector<Context*> g_contexts;  // handle = index + 1
 Context* g_current = nullptr;
+
+// On a desktop OpenGL context the ES extension names never appear in GL_EXTENSIONS; these are the
+// desktop extensions (or the core version, major * 10 + minor) that carry the same entry points. Mesa
+// aliases the ES-suffixed names (glGenQueriesEXT, glEnableiOES, glClipControlEXT, ...) to the desktop
+// functions, so the pointers work as soon as the feature is there.
+struct DesktopEquivalent { const char* es; const char* desktop; int coreVersion; };
+static const DesktopEquivalent kDesktopEquivalents[] = {
+  {"GL_EXT_disjoint_timer_query", "GL_ARB_timer_query", 33},
+  {"GL_OES_draw_buffers_indexed", "GL_ARB_draw_buffers_blend", 40},
+  {"GL_EXT_clip_control", "GL_ARB_clip_control", 45},
+  {"GL_EXT_polygon_offset_clamp", "GL_ARB_polygon_offset_clamp", 46},
+  {"GL_KHR_parallel_shader_compile", "GL_ARB_parallel_shader_compile", 0},
+  {"GL_OES_vertex_array_object", "GL_ARB_vertex_array_object", 30},
+  {"GL_EXT_draw_buffers", nullptr, 30},
+  {"GL_EXT_instanced_arrays", "GL_ARB_instanced_arrays", 33},
+  {"GL_EXT_draw_instanced", "GL_ARB_draw_instanced", 31},
+  {"GL_EXT_texture_storage", "GL_ARB_texture_storage", 42},
+};
+
+// Drops extension entry points whose extension the driver does not advertise. Needed for non-ANGLE
+// EGL implementations: Mesa's eglGetProcAddress returns a callable no-op stub for any "gl*" name.
+void PruneUnadvertisedExtensions(const std::string& glExtensions) {
+  std::string exts = " " + glExtensions + " ";
+  auto advertised = [&](const char* name) { return exts.find(std::string(" ") + name + " ") != std::string::npos; };
+  for (size_t i = 0; i < kGLBindingCount; i++) {
+    const char* ext = kGLFunctionExts[i];
+    if (!ext || !*ext || advertised(ext)) continue;
+    bool keep = false;
+    if (g_display.api == "gl") {
+      for (const auto& e : kDesktopEquivalents) {
+        if (strcmp(e.es, ext) != 0) continue;
+        if ((e.desktop && advertised(e.desktop)) || (e.coreVersion && g_display.glVersion >= e.coreVersion)) { keep = true; break; }
+      }
+    }
+    if (!keep) SetGLFunction(i, nullptr);
+  }
+}
 
 PFNGLMAPBUFFERRANGEPROC p_glMapBufferRange = nullptr;
 PFNGLUNMAPBUFFERPROC p_glUnmapBuffer = nullptr;
@@ -396,7 +458,66 @@ bool HasClientExtension(const char* ext) {
   return (" " + std::string(s) + " ").find(needle) != std::string::npos;
 }
 
-bool TryInitDisplay(const std::string& backend, std::string& err) {
+// Picks a pbuffer-capable RGBA8 config for the given client API (EGL_OPENGL_BIT or EGL_OPENGL_ES2_BIT).
+bool ChooseConfig(EGLDisplay dpy, EGLint renderable, EGLConfig& config) {
+  const EGLint cfgAttrs[] = {
+      EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+      EGL_RENDERABLE_TYPE, renderable,
+      EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
+      EGL_DEPTH_SIZE, 0, EGL_STENCIL_SIZE, 0,
+      EGL_NONE};
+  EGLint n = 0;
+  if (egl.ChooseConfig(dpy, cfgAttrs, &config, 1, &n) && n >= 1) return true;
+  // Fall back to any pbuffer-capable config.
+  const EGLint loose[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, renderable, EGL_NONE};
+  return egl.ChooseConfig(dpy, loose, &config, 1, &n) && n >= 1;
+}
+
+// Tries a desktop OpenGL core-profile context on this display and checks that it can run WebGL's
+// GLSL ES shaders (ARB_ES2/ES3_compatibility) — the context type Chrome's ANGLE drives on Mesa.
+// Leaves EGL_OPENGL_API bound and `config` set on success.
+bool ProbeDesktopGL(EGLDisplay dpy, bool surfaceless, EGLConfig& config, std::string& err) {
+  if (!egl.BindAPI(EGL_OPENGL_API)) { err = "eglBindAPI(EGL_OPENGL_API) failed: " + EglErrorString(); return false; }
+  if (!ChooseConfig(dpy, EGL_OPENGL_BIT, config)) { err = "no EGL config renders desktop OpenGL"; return false; }
+  const EGLint attrs[] = {EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, 3,
+                          EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT, EGL_NONE};
+  EGLContext ctx = egl.CreateContext(dpy, config, EGL_NO_CONTEXT, attrs);
+  if (ctx == EGL_NO_CONTEXT) { err = "eglCreateContext (OpenGL 3.3 core) failed: " + EglErrorString(); return false; }
+  EGLSurface surface = EGL_NO_SURFACE;
+  if (!surfaceless) {
+    const EGLint pb[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
+    surface = egl.CreatePbufferSurface(dpy, config, pb);
+  }
+  bool ok = false;
+  if (egl.MakeCurrent(dpy, surface, surface, ctx)) {
+    auto getString = (PFNGLGETSTRINGPROC)GetProc("glGetString");
+    auto getStringi = (PFNGLGETSTRINGIPROC)GetProc("glGetStringi");
+    auto getIntegerv = (PFNGLGETINTEGERVPROC)GetProc("glGetIntegerv");
+    auto getError = (PFNGLGETERRORPROC)GetProc("glGetError");
+    const char* version = getString ? (const char*)getString(GL_VERSION) : nullptr;
+    int major = 0, minor = 0;
+    if (version) sscanf(version, "%d.%d", &major, &minor);
+    std::string exts = " " + CurrentGLExtensions(getString, getStringi, getIntegerv, getError) + " ";
+    bool es2 = exts.find(" GL_ARB_ES2_compatibility ") != std::string::npos;
+    bool es3 = exts.find(" GL_ARB_ES3_compatibility ") != std::string::npos;
+    if (major * 10 + minor >= 33 && es2 && es3) {
+      ok = true;
+      g_display.glVersion = major * 10 + minor;
+    } else {
+      err = std::string("desktop OpenGL ") + (version ? version : "(unknown version)") + " cannot run GLSL ES (needs 3.3 core with ARB_ES2_compatibility and ARB_ES3_compatibility)";
+    }
+    egl.MakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+  } else {
+    err = "eglMakeCurrent (OpenGL probe) failed: " + EglErrorString();
+  }
+  if (surface != EGL_NO_SURFACE) egl.DestroySurface(dpy, surface);
+  egl.DestroyContext(dpy, ctx);
+  return ok;
+}
+
+// api: "gles", "gl" (desktop OpenGL core profile) or "auto" (desktop OpenGL when a non-ANGLE EGL can
+// run GLSL ES on it, like Chrome does on Mesa; ES otherwise).
+bool TryInitDisplay(const std::string& backend, const std::string& api, std::string& err) {
   std::vector<EGLint> attrs;
   if (!BackendAttribs(backend, attrs, err)) return false;
   auto getPlatformDisplayEXT = (PFNEGLGETPLATFORMDISPLAYEXTPROC)egl.GetProcAddress("eglGetPlatformDisplayEXT");
@@ -415,31 +536,34 @@ bool TryInitDisplay(const std::string& backend, std::string& err) {
   if (dpy == EGL_NO_DISPLAY) { err = "eglGetPlatformDisplay failed: " + EglErrorString(); return false; }
   EGLint major = 0, minor = 0;
   if (!egl.Initialize(dpy, &major, &minor)) { err = "eglInitialize failed (" + backend + "): " + EglErrorString(); return false; }
-  if (!egl.BindAPI(EGL_OPENGL_ES_API)) { err = "eglBindAPI failed: " + EglErrorString(); egl.Terminate(dpy); return false; }
-  const EGLint cfgAttrs[] = {
-      EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-      EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-      EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
-      EGL_DEPTH_SIZE, 0, EGL_STENCIL_SIZE, 0,
-      EGL_NONE};
+  const char* ext = egl.QueryString(dpy, EGL_EXTENSIONS);
+  std::string extensions = ext ? ext : "";
+  bool surfaceless = (" " + extensions + " ").find(" EGL_KHR_surfaceless_context ") != std::string::npos;
+
+  std::string apiUsed = "gles";
   EGLConfig config = nullptr;
-  EGLint n = 0;
-  if (!egl.ChooseConfig(dpy, cfgAttrs, &config, 1, &n) || n < 1) {
-    // Fall back to any pbuffer-capable config.
-    const EGLint loose[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_NONE};
-    if (!egl.ChooseConfig(dpy, loose, &config, 1, &n) || n < 1) { err = "eglChooseConfig found no config: " + EglErrorString(); egl.Terminate(dpy); return false; }
+  g_display.glVersion = 0;
+  if (api == "gl" && isAngle) { err = "the desktop OpenGL client API needs a non-ANGLE EGL (Mesa); ANGLE only offers OpenGL ES"; egl.Terminate(dpy); return false; }
+  if (!isAngle && (api == "gl" || api == "auto")) {
+    std::string probeErr;
+    if (ProbeDesktopGL(dpy, surfaceless, config, probeErr)) apiUsed = "gl";
+    else if (api == "gl") { err = "desktop OpenGL unavailable: " + probeErr; egl.Terminate(dpy); return false; }
+  }
+  if (apiUsed == "gles") {
+    if (!egl.BindAPI(EGL_OPENGL_ES_API)) { err = "eglBindAPI failed: " + EglErrorString(); egl.Terminate(dpy); return false; }
+    if (!ChooseConfig(dpy, EGL_OPENGL_ES2_BIT, config)) { err = "eglChooseConfig found no config: " + EglErrorString(); egl.Terminate(dpy); return false; }
   }
   g_display.dpy = dpy;
   g_display.config = config;
   g_display.isAngle = isAngle;
+  g_display.api = apiUsed;
   g_display.backend = isAngle ? (backend.empty() ? "default" : backend) : "egl";
-  const char* ext = egl.QueryString(dpy, EGL_EXTENSIONS);
-  g_display.extensions = ext ? ext : "";
+  g_display.extensions = extensions;
   const char* vendor = egl.QueryString(dpy, EGL_VENDOR);
   g_display.vendor = vendor ? vendor : "";
   const char* version = egl.QueryString(dpy, EGL_VERSION);
   g_display.version = version ? version : "";
-  g_display.surfaceless = g_display.has("EGL_KHR_surfaceless_context");
+  g_display.surfaceless = surfaceless;
   return true;
 }
 
@@ -453,10 +577,12 @@ napi_value DisplayInfo(napi_env env) {
   SetProp(env, o, "surfaceless", RetBool(env, g_display.surfaceless));
   SetProp(env, o, "dynamic", RetBool(env, egl.dynamic));
   SetProp(env, o, "angle", RetBool(env, g_display.isAngle));
+  SetProp(env, o, "api", RetStr(env, g_display.api));
+  SetProp(env, o, "glVersion", RetNum(env, g_display.glVersion));
   return o;
 }
 
-// init({ backend?: string }) -> display info. Idempotent.
+// init({ backend?: string, api?: string }) -> display info. Idempotent.
 napi_value Init(napi_env env, napi_callback_info info) {
   size_t argc = 1;
   napi_value argv[1] = {};
@@ -469,6 +595,13 @@ napi_value Init(napi_env env, napi_callback_info info) {
     const char* envBackend = getenv("NODE_WEBGL_BACKEND");
     if (envBackend && *envBackend) requested = envBackend;
   }
+  std::string api = OptStr(env, argv[0], "api", "");
+  if (api.empty()) {
+    const char* envApi = getenv("NODE_WEBGL_API");
+    if (envApi && *envApi) api = envApi;
+  }
+  if (api.empty()) api = "auto";
+  if (api != "auto" && api != "gl" && api != "gles") return Throw(env, "node-webgl: unknown api '" + api + "' (expected 'auto', 'gl' or 'gles')");
   std::vector<std::string> candidates;
   if (!requested.empty()) candidates.push_back(requested);
   else {
@@ -484,7 +617,7 @@ napi_value Init(napi_env env, napi_callback_info info) {
   std::string errors;
   for (const auto& c : candidates) {
     std::string err;
-    if (TryInitDisplay(c, err)) return DisplayInfo(env);
+    if (TryInitDisplay(c, api, err)) return DisplayInfo(env);
     errors += (errors.empty() ? "" : "; ") + err;
   }
   return Throw(env, "node-webgl: could not initialize ANGLE: " + errors);
@@ -505,7 +638,14 @@ napi_value CreateContext(napi_env env, napi_callback_info info) {
   bool extensionsEnabled = OptBool(env, argv[0], "extensionsEnabled", false);
   std::string power = OptStr(env, argv[0], "powerPreference", "default");
 
-  std::vector<EGLint> a = {EGL_CONTEXT_MAJOR_VERSION, major, EGL_CONTEXT_MINOR_VERSION, minor};
+  std::vector<EGLint> a;
+  if (D.api == "gl") {
+    // Desktop OpenGL core profile, the context type Chrome's ANGLE drives on Mesa: the ES version is
+    // irrelevant (Mesa hands out its highest core version, at least 3.3 as the probe checked).
+    a = {EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, 3, EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT};
+  } else {
+    a = {EGL_CONTEXT_MAJOR_VERSION, major, EGL_CONTEXT_MINOR_VERSION, minor};
+  }
   // Ask for exactly the requested ES version (ANGLE otherwise hands out the highest compatible one).
   if (D.has("EGL_ANGLE_create_context_backwards_compatible")) { a.push_back(EGL_CONTEXT_OPENGL_BACKWARDS_COMPATIBLE_ANGLE); a.push_back(EGL_FALSE); }
   if (D.has("EGL_ANGLE_create_context_webgl_compatibility")) { a.push_back(EGL_CONTEXT_WEBGL_COMPATIBILITY_ANGLE); a.push_back(webgl ? EGL_TRUE : EGL_FALSE); }
@@ -513,17 +653,24 @@ napi_value CreateContext(napi_env env, napi_callback_info info) {
   if (D.has("EGL_ANGLE_create_context_client_arrays")) { a.push_back(EGL_CONTEXT_CLIENT_ARRAYS_ENABLED_ANGLE); a.push_back(EGL_FALSE); }
   if (robustInit && D.has("EGL_ANGLE_robust_resource_initialization")) { a.push_back(EGL_ROBUST_RESOURCE_INITIALIZATION_ANGLE); a.push_back(EGL_TRUE); }
   if (D.has("EGL_ANGLE_create_context_extensions_enabled")) { a.push_back(EGL_EXTENSIONS_ENABLED_ANGLE); a.push_back(extensionsEnabled ? EGL_TRUE : EGL_FALSE); }
-  if (robustness && D.has("EGL_EXT_create_context_robustness")) {
-    a.push_back(EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT); a.push_back(EGL_TRUE);
-    a.push_back(EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY_EXT); a.push_back(EGL_LOSE_CONTEXT_ON_RESET_EXT);
-  }
   if (D.has("EGL_ANGLE_power_preference") && power != "default") {
     a.push_back(EGL_POWER_PREFERENCE_ANGLE);
     a.push_back(power == "low-power" ? EGL_LOW_POWER_ANGLE : EGL_HIGH_POWER_ANGLE);
   }
+  size_t robustnessAt = a.size();
+  if (robustness && D.has("EGL_EXT_create_context_robustness")) {
+    a.push_back(EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT); a.push_back(EGL_TRUE);
+    a.push_back(EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY_EXT); a.push_back(EGL_LOSE_CONTEXT_ON_RESET_EXT);
+  }
   a.push_back(EGL_NONE);
 
   EGLContext ctx = egl.CreateContext(D.dpy, D.config, EGL_NO_CONTEXT, a.data());
+  if (ctx == EGL_NO_CONTEXT && a.size() > robustnessAt + 1) {
+    // Some drivers refuse robust contexts for one client API only: retry without.
+    a.resize(robustnessAt);
+    a.push_back(EGL_NONE);
+    ctx = egl.CreateContext(D.dpy, D.config, EGL_NO_CONTEXT, a.data());
+  }
   if (ctx == EGL_NO_CONTEXT) return Throw(env, "eglCreateContext failed: " + EglErrorString());
   EGLSurface surface = EGL_NO_SURFACE;
   if (!D.surfaceless) {
@@ -539,7 +686,7 @@ napi_value CreateContext(napi_env env, napi_callback_info info) {
   }
   if (!g_display.glLoaded) {
     LoadGLFunctions(GetProc);
-    if (!g_display.isAngle && gl.glGetString) PruneUnadvertisedExtensions((const char*)gl.glGetString(GL_EXTENSIONS));
+    if (!g_display.isAngle) PruneUnadvertisedExtensions(CurrentGLExtensions(gl.glGetString, gl.glGetStringi, gl.glGetIntegerv, gl.glGetError));
     p_glMapBufferRange = (PFNGLMAPBUFFERRANGEPROC)GetProc("glMapBufferRange");
     p_glUnmapBuffer = (PFNGLUNMAPBUFFERPROC)GetProc("glUnmapBuffer");
     g_display.glLoaded = true;

@@ -544,3 +544,19 @@ describe('canvas image output', () => {
     canvas.dispose();
   });
 });
+
+describe('display info', () => {
+  test('reports the client API behind the contexts', () => {
+    const d = getDisplayInfo() ?? init();
+    assert.ok(d.api === 'gl' || d.api === 'gles', `api = ${d.api}`);
+    if (d.api === 'gl') {
+      assert.equal(d.angle, false, 'ANGLE only offers OpenGL ES');
+      assert.ok(d.glVersion >= 33, `glVersion = ${d.glVersion}`);
+    } else {
+      assert.equal(d.glVersion, 0);
+    }
+    const gl = makeGL(2, 4, 4);
+    assert.equal(gl.getError(), 0);
+    dispose(gl);
+  });
+});

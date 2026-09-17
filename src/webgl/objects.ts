@@ -28,11 +28,19 @@ export class WebGLBuffer extends WebGLObject {
   /** @internal first target this buffer was bound to (WebGL 2 forbids mixing element/non-element use). */
   _target = 0;
 }
-export class WebGLFramebuffer extends WebGLObject {}
-export class WebGLRenderbuffer extends WebGLObject {}
+export class WebGLFramebuffer extends WebGLObject {
+  /** @internal color attachments (desktop GL only, where ES color-renderability is checked in JS). */
+  _color = new Map<number, WebGLTexture | WebGLRenderbuffer>();
+}
+export class WebGLRenderbuffer extends WebGLObject {
+  /** @internal WebGL internal format of the storage (desktop GL only). */
+  _format = 0;
+}
 export class WebGLTexture extends WebGLObject {
   /** @internal first target this texture was bound to. */
   _target = 0;
+  /** @internal WebGL internal format of the last image definition (desktop GL only). */
+  _format = 0;
 }
 export class WebGLShader extends WebGLObject {
   /** @internal */

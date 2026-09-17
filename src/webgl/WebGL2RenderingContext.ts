@@ -43,6 +43,8 @@ export class WebGL2RenderingContext extends WebGLRenderingContextBase {
   // --- framebuffers -----------------------------------------------------------------
   blitFramebuffer(srcX0: number, srcY0: number, srcX1: number, srcY1: number, dstX0: number, dstY0: number, dstX1: number, dstY1: number, mask: number, filter: number): void {
     if (!this._ready()) return;
+    // ES forbids blitting into a multisampled draw framebuffer (desktop GL allows it between equal sample counts).
+    if (this._desktopGL && this._getInt(GL.SAMPLE_BUFFERS) > 0) { this._error(GL.INVALID_OPERATION); return; }
     const db = this._drawingBuffer;
     if (db.msFbo && this._readFramebuffer === null && (mask & (GL.DEPTH_BUFFER_BIT | GL.STENCIL_BUFFER_BIT))) db.resolve(mask);
     this._withResolvedRead(() => this._n.blitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter));
@@ -52,6 +54,7 @@ export class WebGL2RenderingContext extends WebGLRenderingContextBase {
     if (!this._ready() || !this._valid(texture, WebGLTexture, true)) return;
     if (this._defaultBound(target)) { this._error(GL.INVALID_OPERATION); return; }
     this._n.framebufferTextureLayer(target, attachment, texture ? texture._id : 0, level, layer);
+    if (this._desktopGL) this._trackAttachment(target, attachment, texture);
   }
 
   /** @internal */
@@ -134,18 +137,21 @@ export class WebGL2RenderingContext extends WebGLRenderingContextBase {
     if (!this._ready()) return;
     this._n.renderbufferStorageMultisample(target, samples, internalformat, width, height);
     if (!this._isAngle) { this._n.getIntegerv(GL.RENDERBUFFER_BINDING, this._i32); this._initDepthStencilStorage('renderbuffer', this._i32[0], internalformat); }
+    if (this._desktopGL) this._afterRenderbufferStorage(internalformat);
   }
 
   // --- textures ------------------------------------------------------------------
   texStorage2D(target: number, levels: number, internalformat: number, width: number, height: number): void {
     if (!this._ready()) return;
     this._n.texStorage2D(target, levels, internalformat, width, height);
+    if (this._desktopGL) this._afterTexDefine(target, internalformat, null);
     if (target === GL.TEXTURE_2D) this._initDepthStencilTexture(target, internalformat, levels, 0);
     else for (let face = 0; face < 6; face++) this._initDepthStencilTexture(GL.TEXTURE_CUBE_MAP_POSITIVE_X + face, internalformat, levels, 0);
   }
   texStorage3D(target: number, levels: number, internalformat: number, width: number, height: number, depth: number): void {
     if (!this._ready()) return;
     this._n.texStorage3D(target, levels, internalformat, width, height, depth);
+    if (this._desktopGL) this._afterTexDefine(target, internalformat, null);
     if (target === GL.TEXTURE_2D_ARRAY) this._initDepthStencilTexture(target, internalformat, levels, depth);
   }
 
@@ -193,6 +199,7 @@ export class WebGL2RenderingContext extends WebGLRenderingContextBase {
     if (typeof data === 'number') { this._n.compressedTexImage3D(target, level, internalformat, width, height, depth, border, data, srcOffsetOrOffset ?? 0); return; }
     const bytes = this._compressedBytes(data, srcOffsetOrOffset, srcLengthOverride);
     if (bytes) this._n.compressedTexImage3D(target, level, internalformat, width, height, depth, border, bytes.byteLength, bytes);
+    if (bytes && this._desktopGL) this._afterTexDefine(target, internalformat, null);
   }
 
   compressedTexSubImage3D(target: number, level: number, xoffset: number, yoffset: number, zoffset: number, width: number, height: number, depth: number, format: number,

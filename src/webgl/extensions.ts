@@ -15,10 +15,11 @@ export interface ExtensionEntry {
   /** Native entry points that must have resolved. */
   fns?: string[];
   /**
-   * Alternatives for non-ANGLE drivers (Mesa, vendor EGL): other GL extension spellings, or 'core3'
-   * when an ES 3.0+ context provides the feature natively.
+   * Alternatives for non-ANGLE drivers (Mesa, vendor EGL): other GL extension spellings (desktop ARB
+   * names included), 'core3' when an ES 3.0+ context provides the feature natively, or 'gl' when a
+   * desktop OpenGL 3.3+ core profile does.
    */
-  alt?: Array<{ gl: string[]; fns?: string[] } | 'core3'>;
+  alt?: Array<{ gl: string[]; fns?: string[] } | 'core3' | 'gl'>;
   create(ctx: WebGLRenderingContextBase): object;
 }
 
@@ -250,46 +251,46 @@ const constantsOnly = (name: string, constants: Record<string, number>) => (): o
 
 export const EXTENSIONS: ExtensionEntry[] = [
   { name: 'ANGLE_instanced_arrays', version: 1, gl: ['GL_ANGLE_instanced_arrays'], fns: ['glDrawArraysInstancedANGLE'], alt: [{ gl: ['GL_EXT_instanced_arrays'], fns: ['glDrawArraysInstancedEXT'] }, 'core3'], create: (c) => new ANGLE_instanced_arrays(c) },
-  { name: 'EXT_blend_minmax', version: 1, gl: ['GL_EXT_blend_minmax'], create: constantsOnly('EXT_blend_minmax', { MIN_EXT: 0x8007, MAX_EXT: 0x8008 }) },
-  { name: 'EXT_clip_control', version: 0, gl: ['GL_EXT_clip_control'], fns: ['glClipControlEXT'], create: (c) => new EXT_clip_control(c) },
-  { name: 'EXT_color_buffer_float', version: 2, gl: ['GL_EXT_color_buffer_float'], optional: ['GL_EXT_float_blend'], create: constantsOnly('EXT_color_buffer_float', {}) },
-  { name: 'EXT_color_buffer_half_float', version: 0, gl: ['GL_EXT_color_buffer_half_float'], create: constantsOnly('EXT_color_buffer_half_float', { RGBA16F_EXT: 0x881a, RGB16F_EXT: 0x881b, FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE_EXT: 0x8211, UNSIGNED_NORMALIZED_EXT: 0x8c17 }) },
-  { name: 'EXT_conservative_depth', version: 2, gl: ['GL_EXT_conservative_depth'], create: constantsOnly('EXT_conservative_depth', {}) },
-  { name: 'EXT_depth_clamp', version: 0, gl: ['GL_EXT_depth_clamp'], create: constantsOnly('EXT_depth_clamp', { DEPTH_CLAMP_EXT: 0x864f }) },
-  { name: 'EXT_disjoint_timer_query', version: 1, gl: ['GL_EXT_disjoint_timer_query'], fns: ['glGenQueriesEXT', 'glQueryCounterEXT'], create: (c) => new EXT_disjoint_timer_query(c) },
-  { name: 'EXT_disjoint_timer_query_webgl2', version: 2, gl: ['GL_EXT_disjoint_timer_query'], fns: ['glQueryCounterEXT', 'glGetQueryObjectui64vEXT'], create: (c) => new EXT_disjoint_timer_query_webgl2(c) },
-  { name: 'EXT_float_blend', version: 0, gl: ['GL_EXT_float_blend'], create: constantsOnly('EXT_float_blend', {}) },
-  { name: 'EXT_frag_depth', version: 1, gl: ['GL_EXT_frag_depth'], create: constantsOnly('EXT_frag_depth', {}) },
-  { name: 'EXT_polygon_offset_clamp', version: 0, gl: ['GL_EXT_polygon_offset_clamp'], fns: ['glPolygonOffsetClampEXT'], create: (c) => new EXT_polygon_offset_clamp(c) },
-  { name: 'EXT_render_snorm', version: 2, gl: ['GL_EXT_render_snorm'], create: constantsOnly('EXT_render_snorm', { R16_SNORM_EXT: 0x8f98, RG16_SNORM_EXT: 0x8f99, RGB16_SNORM_EXT: 0x8f9a, RGBA16_SNORM_EXT: 0x8f9b }) },
+  { name: 'EXT_blend_minmax', version: 1, gl: ['GL_EXT_blend_minmax'], alt: ['gl'], create: constantsOnly('EXT_blend_minmax', { MIN_EXT: 0x8007, MAX_EXT: 0x8008 }) },
+  { name: 'EXT_clip_control', version: 0, gl: ['GL_EXT_clip_control'], fns: ['glClipControlEXT'], alt: [{ gl: ['GL_ARB_clip_control'], fns: ['glClipControlEXT'] }], create: (c) => new EXT_clip_control(c) },
+  { name: 'EXT_color_buffer_float', version: 2, gl: ['GL_EXT_color_buffer_float'], optional: ['GL_EXT_float_blend'], alt: ['gl'], create: constantsOnly('EXT_color_buffer_float', {}) },
+  { name: 'EXT_color_buffer_half_float', version: 0, gl: ['GL_EXT_color_buffer_half_float'], alt: ['gl'], create: constantsOnly('EXT_color_buffer_half_float', { RGBA16F_EXT: 0x881a, RGB16F_EXT: 0x881b, FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE_EXT: 0x8211, UNSIGNED_NORMALIZED_EXT: 0x8c17 }) },
+  { name: 'EXT_conservative_depth', version: 2, gl: ['GL_EXT_conservative_depth'], alt: [{ gl: ['GL_ARB_conservative_depth'] }], create: constantsOnly('EXT_conservative_depth', {}) },
+  { name: 'EXT_depth_clamp', version: 0, gl: ['GL_EXT_depth_clamp'], alt: [{ gl: ['GL_ARB_depth_clamp'] }], create: constantsOnly('EXT_depth_clamp', { DEPTH_CLAMP_EXT: 0x864f }) },
+  { name: 'EXT_disjoint_timer_query', version: 1, gl: ['GL_EXT_disjoint_timer_query'], fns: ['glGenQueriesEXT', 'glQueryCounterEXT'], alt: [{ gl: ['GL_ARB_timer_query'], fns: ['glGenQueriesEXT', 'glQueryCounterEXT'] }], create: (c) => new EXT_disjoint_timer_query(c) },
+  { name: 'EXT_disjoint_timer_query_webgl2', version: 2, gl: ['GL_EXT_disjoint_timer_query'], fns: ['glQueryCounterEXT', 'glGetQueryObjectui64vEXT'], alt: [{ gl: ['GL_ARB_timer_query'], fns: ['glQueryCounterEXT', 'glGetQueryObjectui64vEXT'] }], create: (c) => new EXT_disjoint_timer_query_webgl2(c) },
+  { name: 'EXT_float_blend', version: 0, gl: ['GL_EXT_float_blend'], alt: ['gl'], create: constantsOnly('EXT_float_blend', {}) },
+  { name: 'EXT_frag_depth', version: 1, gl: ['GL_EXT_frag_depth'], alt: ['gl'], create: constantsOnly('EXT_frag_depth', {}) },
+  { name: 'EXT_polygon_offset_clamp', version: 0, gl: ['GL_EXT_polygon_offset_clamp'], fns: ['glPolygonOffsetClampEXT'], alt: [{ gl: ['GL_ARB_polygon_offset_clamp'], fns: ['glPolygonOffsetClampEXT'] }], create: (c) => new EXT_polygon_offset_clamp(c) },
+  { name: 'EXT_render_snorm', version: 2, gl: ['GL_EXT_render_snorm'], alt: [{ gl: ['GL_EXT_texture_snorm'] }], create: constantsOnly('EXT_render_snorm', { R16_SNORM_EXT: 0x8f98, RG16_SNORM_EXT: 0x8f99, RGB16_SNORM_EXT: 0x8f9a, RGBA16_SNORM_EXT: 0x8f9b }) },
   { name: 'EXT_shader_texture_lod', version: 1, gl: ['GL_EXT_shader_texture_lod'], create: constantsOnly('EXT_shader_texture_lod', {}) },
-  { name: 'EXT_sRGB', version: 1, gl: ['GL_EXT_sRGB'], create: constantsOnly('EXT_sRGB', { SRGB_EXT: 0x8c40, SRGB_ALPHA_EXT: 0x8c42, SRGB8_ALPHA8_EXT: 0x8c43, FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING_EXT: 0x8210 }) },
-  { name: 'EXT_texture_compression_bptc', version: 0, gl: ['GL_EXT_texture_compression_bptc'], create: constantsOnly('EXT_texture_compression_bptc', { COMPRESSED_RGBA_BPTC_UNORM_EXT: 0x8e8c, COMPRESSED_SRGB_ALPHA_BPTC_UNORM_EXT: 0x8e8d, COMPRESSED_RGB_BPTC_SIGNED_FLOAT_EXT: 0x8e8e, COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT: 0x8e8f }) },
-  { name: 'EXT_texture_compression_rgtc', version: 0, gl: ['GL_EXT_texture_compression_rgtc'], create: constantsOnly('EXT_texture_compression_rgtc', { COMPRESSED_RED_RGTC1_EXT: 0x8dbb, COMPRESSED_SIGNED_RED_RGTC1_EXT: 0x8dbc, COMPRESSED_RED_GREEN_RGTC2_EXT: 0x8dbd, COMPRESSED_SIGNED_RED_GREEN_RGTC2_EXT: 0x8dbe }) },
+  { name: 'EXT_sRGB', version: 1, gl: ['GL_EXT_sRGB'], alt: ['gl'], create: constantsOnly('EXT_sRGB', { SRGB_EXT: 0x8c40, SRGB_ALPHA_EXT: 0x8c42, SRGB8_ALPHA8_EXT: 0x8c43, FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING_EXT: 0x8210 }) },
+  { name: 'EXT_texture_compression_bptc', version: 0, gl: ['GL_EXT_texture_compression_bptc'], alt: [{ gl: ['GL_ARB_texture_compression_bptc'] }], create: constantsOnly('EXT_texture_compression_bptc', { COMPRESSED_RGBA_BPTC_UNORM_EXT: 0x8e8c, COMPRESSED_SRGB_ALPHA_BPTC_UNORM_EXT: 0x8e8d, COMPRESSED_RGB_BPTC_SIGNED_FLOAT_EXT: 0x8e8e, COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_EXT: 0x8e8f }) },
+  { name: 'EXT_texture_compression_rgtc', version: 0, gl: ['GL_EXT_texture_compression_rgtc'], alt: [{ gl: ['GL_ARB_texture_compression_rgtc'] }], create: constantsOnly('EXT_texture_compression_rgtc', { COMPRESSED_RED_RGTC1_EXT: 0x8dbb, COMPRESSED_SIGNED_RED_RGTC1_EXT: 0x8dbc, COMPRESSED_RED_GREEN_RGTC2_EXT: 0x8dbd, COMPRESSED_SIGNED_RED_GREEN_RGTC2_EXT: 0x8dbe }) },
   { name: 'EXT_texture_filter_anisotropic', version: 0, gl: ['GL_EXT_texture_filter_anisotropic'], create: constantsOnly('EXT_texture_filter_anisotropic', { TEXTURE_MAX_ANISOTROPY_EXT: 0x84fe, MAX_TEXTURE_MAX_ANISOTROPY_EXT: 0x84ff }) },
-  { name: 'EXT_texture_mirror_clamp_to_edge', version: 0, gl: ['GL_EXT_texture_mirror_clamp_to_edge'], create: constantsOnly('EXT_texture_mirror_clamp_to_edge', { MIRROR_CLAMP_TO_EDGE_EXT: 0x8743 }) },
-  { name: 'EXT_texture_norm16', version: 2, gl: ['GL_EXT_texture_norm16'], create: constantsOnly('EXT_texture_norm16', { R16_EXT: 0x822a, RG16_EXT: 0x822c, RGB16_EXT: 0x8054, RGBA16_EXT: 0x805b, R16_SNORM_EXT: 0x8f98, RG16_SNORM_EXT: 0x8f99, RGB16_SNORM_EXT: 0x8f9a, RGBA16_SNORM_EXT: 0x8f9b }) },
-  { name: 'KHR_parallel_shader_compile', version: 0, gl: ['GL_KHR_parallel_shader_compile'], create: constantsOnly('KHR_parallel_shader_compile', { COMPLETION_STATUS_KHR: 0x91b1 }) },
-  { name: 'NV_shader_noperspective_interpolation', version: 2, gl: ['GL_NV_shader_noperspective_interpolation'], create: constantsOnly('NV_shader_noperspective_interpolation', {}) },
-  { name: 'OES_draw_buffers_indexed', version: 2, gl: ['GL_OES_draw_buffers_indexed'], fns: ['glEnableiOES', 'glBlendFunciOES'], create: (c) => new OES_draw_buffers_indexed(c) },
+  { name: 'EXT_texture_mirror_clamp_to_edge', version: 0, gl: ['GL_EXT_texture_mirror_clamp_to_edge'], alt: [{ gl: ['GL_ARB_texture_mirror_clamp_to_edge'] }], create: constantsOnly('EXT_texture_mirror_clamp_to_edge', { MIRROR_CLAMP_TO_EDGE_EXT: 0x8743 }) },
+  { name: 'EXT_texture_norm16', version: 2, gl: ['GL_EXT_texture_norm16'], alt: ['gl'], create: constantsOnly('EXT_texture_norm16', { R16_EXT: 0x822a, RG16_EXT: 0x822c, RGB16_EXT: 0x8054, RGBA16_EXT: 0x805b, R16_SNORM_EXT: 0x8f98, RG16_SNORM_EXT: 0x8f99, RGB16_SNORM_EXT: 0x8f9a, RGBA16_SNORM_EXT: 0x8f9b }) },
+  { name: 'KHR_parallel_shader_compile', version: 0, gl: ['GL_KHR_parallel_shader_compile'], alt: [{ gl: ['GL_ARB_parallel_shader_compile'] }], create: constantsOnly('KHR_parallel_shader_compile', { COMPLETION_STATUS_KHR: 0x91b1 }) },
+  { name: 'NV_shader_noperspective_interpolation', version: 2, gl: ['GL_NV_shader_noperspective_interpolation'], alt: ['gl'], create: constantsOnly('NV_shader_noperspective_interpolation', {}) },
+  { name: 'OES_draw_buffers_indexed', version: 2, gl: ['GL_OES_draw_buffers_indexed'], fns: ['glEnableiOES', 'glBlendFunciOES'], alt: [{ gl: ['GL_ARB_draw_buffers_blend'], fns: ['glEnableiOES', 'glBlendFunciOES'] }], create: (c) => new OES_draw_buffers_indexed(c) },
   { name: 'OES_element_index_uint', version: 1, gl: ['GL_OES_element_index_uint'], alt: ['core3'], create: constantsOnly('OES_element_index_uint', {}) },
-  { name: 'OES_fbo_render_mipmap', version: 1, gl: ['GL_OES_fbo_render_mipmap'], create: constantsOnly('OES_fbo_render_mipmap', {}) },
-  { name: 'OES_standard_derivatives', version: 1, gl: ['GL_OES_standard_derivatives'], create: constantsOnly('OES_standard_derivatives', { FRAGMENT_SHADER_DERIVATIVE_HINT_OES: 0x8b8b }) },
-  { name: 'OES_texture_float', version: 1, gl: ['GL_OES_texture_float'], optional: ['GL_CHROMIUM_color_buffer_float_rgba', 'GL_CHROMIUM_color_buffer_float_rgb'], create: constantsOnly('OES_texture_float', {}) },
-  { name: 'OES_texture_float_linear', version: 0, gl: ['GL_OES_texture_float_linear'], create: constantsOnly('OES_texture_float_linear', {}) },
-  { name: 'OES_texture_half_float', version: 1, gl: ['GL_OES_texture_half_float'], optional: ['GL_EXT_color_buffer_half_float'], create: constantsOnly('OES_texture_half_float', { HALF_FLOAT_OES: 0x8d61 }) },
-  { name: 'OES_texture_half_float_linear', version: 1, gl: ['GL_OES_texture_half_float_linear'], create: constantsOnly('OES_texture_half_float_linear', {}) },
+  { name: 'OES_fbo_render_mipmap', version: 1, gl: ['GL_OES_fbo_render_mipmap'], alt: ['gl'], create: constantsOnly('OES_fbo_render_mipmap', {}) },
+  { name: 'OES_standard_derivatives', version: 1, gl: ['GL_OES_standard_derivatives'], alt: ['gl'], create: constantsOnly('OES_standard_derivatives', { FRAGMENT_SHADER_DERIVATIVE_HINT_OES: 0x8b8b }) },
+  { name: 'OES_texture_float', version: 1, gl: ['GL_OES_texture_float'], optional: ['GL_CHROMIUM_color_buffer_float_rgba', 'GL_CHROMIUM_color_buffer_float_rgb'], alt: ['gl'], create: constantsOnly('OES_texture_float', {}) },
+  { name: 'OES_texture_float_linear', version: 0, gl: ['GL_OES_texture_float_linear'], alt: ['gl'], create: constantsOnly('OES_texture_float_linear', {}) },
+  { name: 'OES_texture_half_float', version: 1, gl: ['GL_OES_texture_half_float'], optional: ['GL_EXT_color_buffer_half_float'], alt: ['gl'], create: constantsOnly('OES_texture_half_float', { HALF_FLOAT_OES: 0x8d61 }) },
+  { name: 'OES_texture_half_float_linear', version: 1, gl: ['GL_OES_texture_half_float_linear'], alt: ['gl'], create: constantsOnly('OES_texture_half_float_linear', {}) },
   { name: 'OES_vertex_array_object', version: 1, gl: ['GL_OES_vertex_array_object'], fns: ['glGenVertexArraysOES'], alt: ['core3'], create: (c) => new OES_vertex_array_object(c) },
   { name: 'OVR_multiview2', version: 2, gl: ['GL_OVR_multiview2'], fns: ['glFramebufferTextureMultiviewOVR'], create: (c) => new OVR_multiview2(c) },
-  { name: 'WEBGL_blend_func_extended', version: 0, gl: ['GL_EXT_blend_func_extended'], create: constantsOnly('WEBGL_blend_func_extended', { SRC1_COLOR_WEBGL: 0x88f9, SRC1_ALPHA_WEBGL: 0x8589, ONE_MINUS_SRC1_COLOR_WEBGL: 0x88fa, ONE_MINUS_SRC1_ALPHA_WEBGL: 0x88fb, MAX_DUAL_SOURCE_DRAW_BUFFERS_WEBGL: 0x88fc }) },
-  { name: 'WEBGL_clip_cull_distance', version: 2, gl: ['GL_ANGLE_clip_cull_distance'], alt: [{ gl: ['GL_EXT_clip_cull_distance'] }], create: constantsOnly('WEBGL_clip_cull_distance', { MAX_CLIP_DISTANCES_WEBGL: 0x0d32, MAX_CULL_DISTANCES_WEBGL: 0x82f9, MAX_COMBINED_CLIP_AND_CULL_DISTANCES_WEBGL: 0x82fa, CLIP_DISTANCE0_WEBGL: 0x3000, CLIP_DISTANCE1_WEBGL: 0x3001, CLIP_DISTANCE2_WEBGL: 0x3002, CLIP_DISTANCE3_WEBGL: 0x3003, CLIP_DISTANCE4_WEBGL: 0x3004, CLIP_DISTANCE5_WEBGL: 0x3005, CLIP_DISTANCE6_WEBGL: 0x3006, CLIP_DISTANCE7_WEBGL: 0x3007 }) },
-  { name: 'WEBGL_color_buffer_float', version: 1, gl: ['GL_CHROMIUM_color_buffer_float_rgba'], optional: ['GL_CHROMIUM_color_buffer_float_rgb', 'GL_EXT_float_blend'], create: constantsOnly('WEBGL_color_buffer_float', { RGBA32F_EXT: 0x8814, RGB32F_EXT: 0x8815, FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE_EXT: 0x8211, UNSIGNED_NORMALIZED_EXT: 0x8c17 }) },
+  { name: 'WEBGL_blend_func_extended', version: 0, gl: ['GL_EXT_blend_func_extended'], alt: [{ gl: ['GL_ARB_blend_func_extended'] }], create: constantsOnly('WEBGL_blend_func_extended', { SRC1_COLOR_WEBGL: 0x88f9, SRC1_ALPHA_WEBGL: 0x8589, ONE_MINUS_SRC1_COLOR_WEBGL: 0x88fa, ONE_MINUS_SRC1_ALPHA_WEBGL: 0x88fb, MAX_DUAL_SOURCE_DRAW_BUFFERS_WEBGL: 0x88fc }) },
+  { name: 'WEBGL_clip_cull_distance', version: 2, gl: ['GL_ANGLE_clip_cull_distance'], alt: [{ gl: ['GL_EXT_clip_cull_distance'] }, { gl: ['GL_ARB_cull_distance'] }], create: constantsOnly('WEBGL_clip_cull_distance', { MAX_CLIP_DISTANCES_WEBGL: 0x0d32, MAX_CULL_DISTANCES_WEBGL: 0x82f9, MAX_COMBINED_CLIP_AND_CULL_DISTANCES_WEBGL: 0x82fa, CLIP_DISTANCE0_WEBGL: 0x3000, CLIP_DISTANCE1_WEBGL: 0x3001, CLIP_DISTANCE2_WEBGL: 0x3002, CLIP_DISTANCE3_WEBGL: 0x3003, CLIP_DISTANCE4_WEBGL: 0x3004, CLIP_DISTANCE5_WEBGL: 0x3005, CLIP_DISTANCE6_WEBGL: 0x3006, CLIP_DISTANCE7_WEBGL: 0x3007 }) },
+  { name: 'WEBGL_color_buffer_float', version: 1, gl: ['GL_CHROMIUM_color_buffer_float_rgba'], optional: ['GL_CHROMIUM_color_buffer_float_rgb', 'GL_EXT_float_blend'], alt: ['gl'], create: constantsOnly('WEBGL_color_buffer_float', { RGBA32F_EXT: 0x8814, RGB32F_EXT: 0x8815, FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE_EXT: 0x8211, UNSIGNED_NORMALIZED_EXT: 0x8c17 }) },
   { name: 'WEBGL_compressed_texture_astc', version: 0, gl: ['GL_KHR_texture_compression_astc_ldr'], optional: ['GL_KHR_texture_compression_astc_hdr'], create: (c) => new WEBGL_compressed_texture_astc(c) },
   { name: 'WEBGL_compressed_texture_etc', version: 0, gl: ['GL_ANGLE_compressed_texture_etc'], alt: ['core3'], create: constantsOnly('WEBGL_compressed_texture_etc', { COMPRESSED_R11_EAC: 0x9270, COMPRESSED_SIGNED_R11_EAC: 0x9271, COMPRESSED_RG11_EAC: 0x9272, COMPRESSED_SIGNED_RG11_EAC: 0x9273, COMPRESSED_RGB8_ETC2: 0x9274, COMPRESSED_SRGB8_ETC2: 0x9275, COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2: 0x9276, COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2: 0x9277, COMPRESSED_RGBA8_ETC2_EAC: 0x9278, COMPRESSED_SRGB8_ALPHA8_ETC2_EAC: 0x9279 }) },
   { name: 'WEBGL_compressed_texture_etc1', version: 0, gl: ['GL_OES_compressed_ETC1_RGB8_texture'], create: constantsOnly('WEBGL_compressed_texture_etc1', { COMPRESSED_RGB_ETC1_WEBGL: 0x8d64 }) },
   { name: 'WEBGL_compressed_texture_pvrtc', version: 0, gl: ['GL_IMG_texture_compression_pvrtc'], create: constantsOnly('WEBGL_compressed_texture_pvrtc', { COMPRESSED_RGB_PVRTC_4BPPV1_IMG: 0x8c00, COMPRESSED_RGB_PVRTC_2BPPV1_IMG: 0x8c01, COMPRESSED_RGBA_PVRTC_4BPPV1_IMG: 0x8c02, COMPRESSED_RGBA_PVRTC_2BPPV1_IMG: 0x8c03 }) },
   { name: 'WEBGL_compressed_texture_s3tc', version: 0, gl: ['GL_EXT_texture_compression_dxt1', 'GL_ANGLE_texture_compression_dxt3', 'GL_ANGLE_texture_compression_dxt5'], alt: [{ gl: ['GL_EXT_texture_compression_s3tc'] }], create: constantsOnly('WEBGL_compressed_texture_s3tc', { COMPRESSED_RGB_S3TC_DXT1_EXT: 0x83f0, COMPRESSED_RGBA_S3TC_DXT1_EXT: 0x83f1, COMPRESSED_RGBA_S3TC_DXT3_EXT: 0x83f2, COMPRESSED_RGBA_S3TC_DXT5_EXT: 0x83f3 }) },
-  { name: 'WEBGL_compressed_texture_s3tc_srgb', version: 0, gl: ['GL_EXT_texture_compression_s3tc_srgb'], create: constantsOnly('WEBGL_compressed_texture_s3tc_srgb', { COMPRESSED_SRGB_S3TC_DXT1_EXT: 0x8c4c, COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT: 0x8c4d, COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT: 0x8c4e, COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT: 0x8c4f }) },
+  { name: 'WEBGL_compressed_texture_s3tc_srgb', version: 0, gl: ['GL_EXT_texture_compression_s3tc_srgb'], alt: [{ gl: ['GL_EXT_texture_sRGB', 'GL_EXT_texture_compression_s3tc'] }], create: constantsOnly('WEBGL_compressed_texture_s3tc_srgb', { COMPRESSED_SRGB_S3TC_DXT1_EXT: 0x8c4c, COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT: 0x8c4d, COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT: 0x8c4e, COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT: 0x8c4f }) },
   { name: 'WEBGL_debug_renderer_info', version: 0, gl: [], create: constantsOnly('WEBGL_debug_renderer_info', { UNMASKED_VENDOR_WEBGL: 0x9245, UNMASKED_RENDERER_WEBGL: 0x9246 }) },
   { name: 'WEBGL_debug_shaders', version: 0, gl: ['GL_ANGLE_translated_shader_source'], fns: ['glGetTranslatedShaderSourceANGLE'], create: (c) => new WEBGL_debug_shaders(c) },
   { name: 'WEBGL_depth_texture', version: 1, gl: ['GL_ANGLE_depth_texture'], alt: [{ gl: ['GL_OES_depth_texture'] }, 'core3'], create: constantsOnly('WEBGL_depth_texture', { UNSIGNED_INT_24_8_WEBGL: 0x84fa }) },
@@ -301,6 +302,6 @@ export const EXTENSIONS: ExtensionEntry[] = [
   { name: 'WEBGL_polygon_mode', version: 0, gl: ['GL_ANGLE_polygon_mode'], fns: ['glPolygonModeANGLE'], create: (c) => new WEBGL_polygon_mode(c) },
   { name: 'WEBGL_provoking_vertex', version: 2, gl: ['GL_ANGLE_provoking_vertex'], fns: ['glProvokingVertexANGLE'], create: (c) => new WEBGL_provoking_vertex(c) },
   { name: 'WEBGL_render_shared_exponent', version: 2, gl: ['GL_QCOM_render_shared_exponent'], create: constantsOnly('WEBGL_render_shared_exponent', {}) },
-  { name: 'WEBGL_stencil_texturing', version: 2, gl: ['GL_ANGLE_stencil_texturing'], create: constantsOnly('WEBGL_stencil_texturing', { DEPTH_STENCIL_TEXTURE_MODE_WEBGL: 0x90ea, STENCIL_INDEX_WEBGL: 0x1901 }) },
+  { name: 'WEBGL_stencil_texturing', version: 2, gl: ['GL_ANGLE_stencil_texturing'], alt: [{ gl: ['GL_ARB_stencil_texturing'] }], create: constantsOnly('WEBGL_stencil_texturing', { DEPTH_STENCIL_TEXTURE_MODE_WEBGL: 0x90ea, STENCIL_INDEX_WEBGL: 0x1901 }) },
 ];
 

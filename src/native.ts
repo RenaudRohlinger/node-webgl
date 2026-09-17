@@ -14,6 +14,13 @@ export interface DisplayInfo {
   dynamic: boolean;
   /** True when the EGL implementation is ANGLE (WebGL-compatibility validation available). */
   angle: boolean;
+  /**
+   * Client API behind every context: 'gles', or 'gl' for a desktop OpenGL core profile. Non-ANGLE EGLs (Mesa)
+   * get 'gl' whenever the driver can run GLSL ES on it, which is what Chrome's ANGLE drives on Linux.
+   */
+  api: 'gles' | 'gl';
+  /** Desktop OpenGL version as major * 10 + minor (45 = 4.5) when api is 'gl', 0 otherwise. */
+  glVersion: number;
 }
 
 export interface DecodedImage {
@@ -35,7 +42,7 @@ export interface NativeContextOptions {
 }
 
 export interface NativeCore {
-  init(options?: { backend?: string }): DisplayInfo;
+  init(options?: { backend?: string; api?: string }): DisplayInfo;
   createContext(options: NativeContextOptions): number;
   makeCurrent(handle: number): boolean;
   destroyContext(handle: number): void;
@@ -58,6 +65,13 @@ let loadedFns: Set<string> | null = null;
 export interface InitOptions {
   /** Force an ANGLE backend. Defaults to the platform's native API (Metal / D3D11 / Vulkan), overridable with NODE_WEBGL_BACKEND. */
   backend?: 'default' | 'metal' | 'gl' | 'gles' | 'vulkan' | 'swiftshader' | 'd3d11' | 'null';
+  /**
+   * Client API for non-ANGLE EGL implementations (Mesa): 'gl' drives a desktop OpenGL core profile the way
+   * Chrome's ANGLE does on Linux (so wide points and lines clip like a browser's), 'gles' an OpenGL ES context.
+   * 'auto' (default, overridable with NODE_WEBGL_API) picks 'gl' when the driver can compile GLSL ES on it.
+   * ANGLE builds always use OpenGL ES.
+   */
+  api?: 'auto' | 'gl' | 'gles';
 }
 
 /** Loads the addon (prebuilt or locally compiled). */
@@ -71,7 +85,12 @@ export function loadNative(): Native {
 /** Initializes the EGL display. Called automatically by the first context; call it early to pick a backend. */
 export function init(options: InitOptions = {}): DisplayInfo {
   const n = loadNative();
-  if (!display) display = n.init(options);
+  if (!display) {
+    display = n.init(options);
+    // Prebuilt binaries from before the client-API probe report neither field: they are always OpenGL ES (ANGLE).
+    display.api ??= 'gles';
+    display.glVersion ??= 0;
+  }
   return display;
 }
 

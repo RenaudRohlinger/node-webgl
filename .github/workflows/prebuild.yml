@@ -35,7 +35,8 @@ jobs:
           name: prebuilds-${{ matrix.os }}
           path: prebuilds/
   linux-mesa:
-    # No static ANGLE for Linux yet: build in dynamic mode against Mesa's EGL/GLES (llvmpipe, no display server).
+    # No static ANGLE for Linux yet: build in dynamic mode against Mesa's EGL (llvmpipe, no display server), and
+    # run the suite on both client APIs: the desktop OpenGL core profile picked by default, and OpenGL ES.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -49,6 +50,10 @@ jobs:
       - run: npm test
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'
+      - run: npm test
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          NODE_WEBGL_API: gles
       - run: npm run examples
         env:
           LIBGL_ALWAYS_SOFTWARE: '1'

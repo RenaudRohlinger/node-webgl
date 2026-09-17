@@ -129,7 +129,7 @@ gl.canvas.toBuffer('image/png');
 |---|---|---|---|
 | macOS arm64 (Apple silicon) | Metal | prebuilt, nothing to compile | verified locally and on GitHub's macOS runners: 246/246 tests, 12/12 examples |
 | Windows x64 | Direct3D 11 (WARP software renderer when there is no GPU) | prebuilt, nothing to compile | verified on GitHub's Windows runners: 240 passed / 6 skipped, 12/12 examples |
-| Linux (x64, arm64) | Mesa (llvmpipe, Zink, or your GPU driver) | compiles on install, ~10 s | verified on GitHub's Ubuntu runners and in a Debian 12 container: 232 passed / 14 skipped, 12/12 examples |
+| Linux (x64, arm64) | Mesa (llvmpipe, Zink, or your GPU driver), on a desktop OpenGL core profile like Chrome's ANGLE, or OpenGL ES | compiles on install, ~10 s | verified on GitHub's Ubuntu runners and in Ubuntu 24.04 containers on both client APIs: 236 passed / 14 skipped, 12/12 examples |
 | Anywhere with Chromium/Electron | ANGLE + SwiftShader (CPU) | point `NODE_WEBGL_LIBEGL` at it | verified on macOS |
 
 ## Continuous integration
@@ -202,12 +202,14 @@ The first context initializes ANGLE with the platform's native API. Override wit
 ```js
 import { init, getDisplayInfo } from '@onirenaud/node-webgl';
 init({ backend: 'swiftshader' });
-console.log(getDisplayInfo());   // { backend, vendor, version, extensions, surfaceless, dynamic, angle }
+console.log(getDisplayInfo());   // { backend, vendor, version, extensions, surfaceless, dynamic, angle, api, glVersion }
 ```
 
 `gl.getExtension('WEBGL_debug_renderer_info')` exposes the real renderer string, e.g. `ANGLE (Apple, ANGLE Metal Renderer: Apple M5 Max, Unspecified Version)`.
 
-**Bring your own EGL.** `NODE_WEBGL_LIBEGL` (and optionally `NODE_WEBGL_LIBGLESV2`) load a different EGL/GLES implementation at runtime instead of the bundled ANGLE: ANGLE from a Chromium or Electron install (adds the SwiftShader CPU backend), or Mesa on Linux. `getDisplayInfo().angle` tells you which kind you got. Without ANGLE, WebGL-specific validation is reduced to what the JavaScript layer enforces (object lifetime, default-framebuffer rules, no-program draws, WebGL 1 restrictions such as `transpose` and `RASTERIZER_DISCARD`), and a WebGL 1 context may run on an ES 3.x driver context.
+**Bring your own EGL.** `NODE_WEBGL_LIBEGL` (and optionally `NODE_WEBGL_LIBGLESV2`) load a different EGL/GLES implementation at runtime instead of the bundled ANGLE: ANGLE from a Chromium or Electron install (adds the SwiftShader CPU backend), or Mesa on Linux. `getDisplayInfo().angle` tells you which kind you got. Without ANGLE, WebGL-specific validation is reduced to what the JavaScript layer enforces (object lifetime, default-framebuffer rules, no-program draws, WebGL 1 restrictions such as `transpose` and `RASTERIZER_DISCARD`, ES color-renderable formats, no blits into multisampled targets), and a WebGL 1 context may run on an ES 3.x or desktop GL driver context.
+
+**Client API.** ANGLE always provides OpenGL ES. A non-ANGLE EGL (Mesa) can also provide a desktop OpenGL core profile, which is what Chrome's ANGLE drives on Linux, so it rasterizes exactly like a Linux browser: Mesa's ES contexts clip wide points and lines after widening them (a point whose centre is off-screen still shows its visible part), its desktop contexts drop them by centre and endpoint, like the browser. `init({ api })` or `NODE_WEBGL_API` pick `gl` (desktop OpenGL 3.3+ core with `ARB_ES3_compatibility`, so GLSL ES shaders compile unchanged) or `gles`; the default `auto` takes `gl` whenever the driver can. `getDisplayInfo().api` reports the choice and `glVersion` the desktop version (45 = 4.5). On the desktop profile the library fills in what GLES has implicitly: a default vertex array, shader point sizes, seamless cube maps, sRGB encoding, the fixed primitive restart index, `GENERATE_MIPMAP_HINT`, `RED_BITS` & co., `LUMINANCE` / `ALPHA` textures (sized red / red-green storage plus a swizzle) and WebGL 1's unsized float formats.
 
 ### Linux and CI
 
@@ -218,7 +220,7 @@ sudo apt-get install -y libegl1 libgles2 libgl1-mesa-dri   # Debian/Ubuntu, GitH
 LIBGL_ALWAYS_SOFTWARE=1 node render.mjs                     # llvmpipe: no GPU, no display server
 ```
 
-Verified in a Debian 12 container (Mesa 22.3, llvmpipe): 233 of 246 tests pass and 13 are skipped as ANGLE- or macOS-specific (exact extension lists, translated shader source, multi-draw, the ImageIO codec), and all 12 three.js examples render — JPEG textures included. Without ANGLE, the library also fills in what WebGL guarantees but Mesa does not: fresh depth/stencil storage reads as depth 1.0 and stencil 0, and `WEBGL_clip_cull_distance` maps to `GL_EXT_clip_cull_distance`. Mesa's GLES contexts clip large points and lines by their centers and endpoints (desktop GL clips them geometrically), so points and lines crossing the viewport edge or the near plane can render differently than in a browser. A software rasterizer is slower than Metal or D3D11, but fine for CI screenshots and regression tests. Point `NODE_WEBGL_LIBEGL` at Chromium's ANGLE + SwiftShader instead for browser-identical validation.
+Verified in Ubuntu 24.04 containers (Mesa 25.2, llvmpipe) on both client APIs: 236 of 250 tests pass and 14 are skipped as ANGLE- or macOS-specific (exact extension lists, translated shader source, multi-draw, the ImageIO codec), and all 12 three.js examples render — JPEG textures included. Without ANGLE, the library also fills in what WebGL guarantees but Mesa does not: fresh depth/stencil storage reads as depth 1.0 and stencil 0, and `WEBGL_clip_cull_distance` maps to `GL_EXT_clip_cull_distance`. The desktop OpenGL profile picked by default clips wide points and lines like Chrome on Linux does; set `NODE_WEBGL_API=gles` for Mesa's OpenGL ES context, which clips them after widening. A software rasterizer is slower than Metal or D3D11, but fine for CI screenshots and regression tests. Point `NODE_WEBGL_LIBEGL` at Chromium's ANGLE + SwiftShader instead for browser-identical validation.
 
 ## How it works
 
