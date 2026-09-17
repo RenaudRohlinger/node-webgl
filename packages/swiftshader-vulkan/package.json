@@ -1,0 +1,44 @@
+{
+  "name": "@onirenaud/swiftshader-vulkan",
+  "version": "0.1.0-chromium.152",
+  "description": "SwiftShader's Vulkan driver (the CPU implementation Chrome bundles) as a Vulkan ICD for Linux: point VK_DRIVER_FILES at it to run Dawn, WebGPU or any Vulkan program without a GPU.",
+  "license": "Apache-2.0",
+  "author": "Renaud Rohlinger",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RenaudRohlinger/node-webgl.git",
+    "directory": "packages/swiftshader-vulkan"
+  },
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "linux-x64",
+    "linux-arm64",
+    "README.md",
+    "LICENSE"
+  ],
+  "os": [
+    "linux"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "swiftshader": {
+    "revision": "5b0479bd2d15058aaa9eb490e364f920ff824a8c",
+    "chromium": "152.0.7977.54"
+  },
+  "keywords": [
+    "swiftshader",
+    "vulkan",
+    "icd",
+    "webgpu",
+    "dawn",
+    "headless",
+    "software-rendering"
+  ]
+}
