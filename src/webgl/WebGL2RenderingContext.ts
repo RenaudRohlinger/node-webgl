@@ -131,15 +131,22 @@ export class WebGL2RenderingContext extends WebGLRenderingContextBase {
   }
 
   renderbufferStorageMultisample(target: number, samples: number, internalformat: number, width: number, height: number): void {
-    if (this._ready()) this._n.renderbufferStorageMultisample(target, samples, internalformat, width, height);
+    if (!this._ready()) return;
+    this._n.renderbufferStorageMultisample(target, samples, internalformat, width, height);
+    if (!this._isAngle) { this._n.getIntegerv(GL.RENDERBUFFER_BINDING, this._i32); this._initDepthStencilStorage('renderbuffer', this._i32[0], internalformat); }
   }
 
   // --- textures ------------------------------------------------------------------
   texStorage2D(target: number, levels: number, internalformat: number, width: number, height: number): void {
-    if (this._ready()) this._n.texStorage2D(target, levels, internalformat, width, height);
+    if (!this._ready()) return;
+    this._n.texStorage2D(target, levels, internalformat, width, height);
+    if (target === GL.TEXTURE_2D) this._initDepthStencilTexture(target, internalformat, levels, 0);
+    else for (let face = 0; face < 6; face++) this._initDepthStencilTexture(GL.TEXTURE_CUBE_MAP_POSITIVE_X + face, internalformat, levels, 0);
   }
   texStorage3D(target: number, levels: number, internalformat: number, width: number, height: number, depth: number): void {
-    if (this._ready()) this._n.texStorage3D(target, levels, internalformat, width, height, depth);
+    if (!this._ready()) return;
+    this._n.texStorage3D(target, levels, internalformat, width, height, depth);
+    if (target === GL.TEXTURE_2D_ARRAY) this._initDepthStencilTexture(target, internalformat, levels, depth);
   }
 
   /**

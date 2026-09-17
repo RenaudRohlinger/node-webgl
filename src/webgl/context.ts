@@ -17,7 +17,7 @@ import {
   bytesPerPixel, imageByteSize, repackForUpload, convertImage, canConvertImage, flipRowsInPlace,
   type UnpackParams, type RGBA8Source,
 } from './pixels.ts';
-import { DrawingBuffer } from './drawing-buffer.ts';
+import { DrawingBuffer, clearFramebufferContents } from './drawing-buffer.ts';
 import { EXTENSIONS, type ExtensionEntry } from './extensions.ts';
 
 export interface WebGLContextAttributes {
@@ -149,6 +149,7 @@ export class WebGLRenderingContextBase {
   /** @internal */ _destroyed = false;
   /** @internal */ _errors: number[] = [];
   /** @internal */ _drawingBuffer!: DrawingBuffer;
+  /** @internal Framebuffer used to initialize fresh depth/stencil storage on non-ANGLE drivers. */ _initFbo = 0;
 
   /** @internal */ _buffers = new Map<number, WebGLBuffer>();
   /** @internal */ _framebuffers = new Map<number, WebGLFramebuffer>();
@@ -274,6 +275,62 @@ export class WebGLRenderingContextBase {
   /** @internal Records a WebGL-level error (returned by getError before GL's own). */
   _error(code: number): void {
     if (!this._errors.includes(code)) this._errors.push(code);
+  }
+
+  /** @internal Moves errors pending in the driver into the WebGL error queue. */
+  _flushErrors(): void {
+    for (let e = this._n.getError(); e !== GL.NO_ERROR; e = this._n.getError()) this._error(e);
+  }
+
+  /**
+   * @internal WebGL guarantees that freshly allocated storage reads as zero (depth 1.0, stencil 0); ANGLE provides
+   * this through robust resource initialization. Other drivers leave new storage undefined (Mesa leaves depth at 0,
+   * so nothing passes the depth test until the application clears), so new depth/stencil storage is cleared here
+   * through a scratch framebuffer. `layer` >= 0 addresses one layer of a 2D array texture.
+   */
+  _initDepthStencilStorage(kind: 'renderbuffer' | 'texture', id: number, internalformat: number, textarget = 0, level = 0, layer = -1): void {
+    if (this._isAngle || !id) return;
+    let attachment: number, mask: number;
+    switch (internalformat) {
+      case GL.DEPTH_COMPONENT: case GL.DEPTH_COMPONENT16: case GL.DEPTH_COMPONENT24: case GL.DEPTH_COMPONENT32F:
+        attachment = GL.DEPTH_ATTACHMENT; mask = GL.DEPTH_BUFFER_BIT; break;
+      case GL.DEPTH_STENCIL: case GL.DEPTH24_STENCIL8: case GL.DEPTH32F_STENCIL8:
+        attachment = GL.DEPTH_STENCIL_ATTACHMENT; mask = GL.DEPTH_BUFFER_BIT | GL.STENCIL_BUFFER_BIT; break;
+      case GL.STENCIL_INDEX8:
+        attachment = GL.STENCIL_ATTACHMENT; mask = GL.STENCIL_BUFFER_BIT; break;
+      default: return;
+    }
+    const n = this._n;
+    this._flushErrors();
+    if (!this._initFbo) { n.genFramebuffers(1, this._u32); this._initFbo = this._u32[0]; }
+    const target = this._es3 ? GL.DRAW_FRAMEBUFFER : GL.FRAMEBUFFER;
+    n.getIntegerv(this._es3 ? GL.DRAW_FRAMEBUFFER_BINDING : GL.FRAMEBUFFER_BINDING, this._i32);
+    const previous = this._i32[0];
+    n.bindFramebuffer(target, this._initFbo);
+    const attach = (object: number) => {
+      if (kind === 'renderbuffer') n.framebufferRenderbuffer(target, attachment, GL.RENDERBUFFER, object);
+      else if (layer >= 0) n.framebufferTextureLayer(target, attachment, object, object ? level : 0, object ? layer : 0);
+      else n.framebufferTexture2D(target, attachment, textarget, object, object ? level : 0);
+    };
+    attach(id);
+    if (n.checkFramebufferStatus(target) === GL.FRAMEBUFFER_COMPLETE) clearFramebufferContents(n, this._es3, mask);
+    attach(0);
+    n.bindFramebuffer(target, previous);
+    while (n.getError() !== GL.NO_ERROR) { /* errors raised while initializing are not the application's */ }
+  }
+
+  /** @internal Initializes every level (and layer) of a texture image allocated without data. */
+  _initDepthStencilTexture(target: number, internalformat: number, levels: number, layers: number, level = 0): void {
+    if (this._isAngle) return;
+    const cubeFace = target >= GL.TEXTURE_CUBE_MAP_POSITIVE_X && target <= GL.TEXTURE_CUBE_MAP_NEGATIVE_Z;
+    const binding = cubeFace ? GL.TEXTURE_BINDING_CUBE_MAP : target === GL.TEXTURE_2D_ARRAY ? GL.TEXTURE_BINDING_2D_ARRAY : target === GL.TEXTURE_2D ? GL.TEXTURE_BINDING_2D : 0;
+    if (!binding) return;
+    this._n.getIntegerv(binding, this._i32);
+    const id = this._i32[0];
+    for (let l = level; l < level + levels; l++) {
+      if (layers > 0) for (let layer = 0; layer < layers; layer++) this._initDepthStencilStorage('texture', id, internalformat, target, l, layer);
+      else this._initDepthStencilStorage('texture', id, internalformat, target, l);
+    }
   }
 
   /** @internal Ownership / deletion check; throws TypeError for wrong types like a browser would. */
@@ -837,6 +894,7 @@ export class WebGLRenderingContextBase {
     const bufSize = Math.max(this._i32[0], 1);
     const name = new Uint8Array(bufSize);
     const len = new Int32Array(1), size = new Int32Array(1), type = new Uint32Array(1);
+    this._flushErrors(); // an error left behind by an earlier call must not be mistaken for a failure of this one
     if (uniform) n.getActiveUniform(program._id, index, bufSize, len, size, type, name);
     else n.getActiveAttrib(program._id, index, bufSize, len, size, type, name);
     const err = n.getError();
@@ -1189,6 +1247,7 @@ export class WebGLRenderingContextBase {
       }
     }
     this._n.renderbufferStorage(target, internalformat, width, height);
+    if (!this._isAngle) { this._n.getIntegerv(GL.RENDERBUFFER_BINDING, this._i32); this._initDepthStencilStorage('renderbuffer', this._i32[0], internalformat); }
   }
 
   // ---------------------------------------------------------------------------
@@ -1220,6 +1279,8 @@ export class WebGLRenderingContextBase {
     if (!this._ready() || !this._valid(shader, WebGLShader)) return;
     source = String(source);
     shader._source = source;
+    // Extensions WebGL names after ANGLE keep their EXT spelling on other drivers.
+    if (!this._isAngle) source = source.replace(/#extension\s+GL_ANGLE_clip_cull_distance\b/g, '#extension GL_EXT_clip_cull_distance');
     this._n.shaderSource(shader._id, 1, [source], null);
   }
 
@@ -1627,6 +1688,7 @@ export class WebGLRenderingContextBase {
       if (sub) { this._error(GL.INVALID_VALUE); return; }
       if (is3D) n.texImage3D(target, level, internalformat, width, height, depth, border, format, type, null);
       else n.texImage2D(target, level, internalformat, width, height, border, format, type, null);
+      this._initDepthStencilTexture(target, internalformat, 1, is3D ? depth : 0, level);
       return;
     }
     const check = expectedArrayType(type);

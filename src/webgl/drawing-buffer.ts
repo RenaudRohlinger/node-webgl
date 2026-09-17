@@ -19,6 +19,49 @@ const RGB8 = 0x8051;
 const DEPTH_COMPONENT24 = 0x81a6;
 const DEPTH24_STENCIL8 = 0x88f0;
 
+/**
+ * Clears the currently bound draw framebuffer to WebGL's initial contents (transparent black, depth 1, stencil 0),
+ * ignoring the scissor, write masks and clear values of the application, all of which are preserved.
+ */
+export function clearFramebufferContents(n: Native, es3: boolean, mask: number): void {
+  const clearColor = new Float32Array(4);
+  const clearDepth = new Float32Array(1);
+  const clearStencil = new Int32Array(1);
+  const colorMask = new Uint8Array(4);
+  const depthMask = new Uint8Array(1);
+  const stencilMask = new Int32Array(1);
+  const stencilBackMask = new Int32Array(1);
+  n.getFloatv(GL.COLOR_CLEAR_VALUE, clearColor);
+  n.getFloatv(GL.DEPTH_CLEAR_VALUE, clearDepth);
+  n.getIntegerv(GL.STENCIL_CLEAR_VALUE, clearStencil);
+  n.getBooleanv(GL.COLOR_WRITEMASK, colorMask);
+  n.getBooleanv(GL.DEPTH_WRITEMASK, depthMask);
+  n.getIntegerv(GL.STENCIL_WRITEMASK, stencilMask);
+  n.getIntegerv(GL.STENCIL_BACK_WRITEMASK, stencilBackMask);
+  const scissor = n.isEnabled(GL.SCISSOR_TEST);
+  const discard = es3 ? n.isEnabled(GL.RASTERIZER_DISCARD) : false;
+
+  n.clearColor(0, 0, 0, 0);
+  n.clearDepthf(1);
+  n.clearStencil(0);
+  n.colorMask(true, true, true, true);
+  n.depthMask(true);
+  n.stencilMask(0xffffffff);
+  if (scissor) n.disable(GL.SCISSOR_TEST);
+  if (discard) n.disable(GL.RASTERIZER_DISCARD);
+  n.clear(mask);
+
+  n.clearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+  n.clearDepthf(clearDepth[0]);
+  n.clearStencil(clearStencil[0]);
+  n.colorMask(!!colorMask[0], !!colorMask[1], !!colorMask[2], !!colorMask[3]);
+  n.depthMask(!!depthMask[0]);
+  n.stencilMaskSeparate(GL.FRONT, stencilMask[0]);
+  n.stencilMaskSeparate(GL.BACK, stencilBackMask[0]);
+  if (scissor) n.enable(GL.SCISSOR_TEST);
+  if (discard) n.enable(GL.RASTERIZER_DISCARD);
+}
+
 export class DrawingBuffer {
   /** Single-sample (resolved) framebuffer: what readPixels/toBuffer see. */
   fbo = 0;
@@ -142,44 +185,8 @@ export class DrawingBuffer {
   }
 
   private clearAll(fbo: number): void {
-    const n = this.n;
-    const clearColor = new Float32Array(4);
-    const clearDepth = new Float32Array(1);
-    const clearStencil = new Int32Array(1);
-    const colorMask = new Uint8Array(4);
-    const depthMask = new Uint8Array(1);
-    const stencilMask = new Int32Array(1);
-    const stencilBackMask = new Int32Array(1);
-    n.getFloatv(GL.COLOR_CLEAR_VALUE, clearColor);
-    n.getFloatv(GL.DEPTH_CLEAR_VALUE, clearDepth);
-    n.getIntegerv(GL.STENCIL_CLEAR_VALUE, clearStencil);
-    n.getBooleanv(GL.COLOR_WRITEMASK, colorMask);
-    n.getBooleanv(GL.DEPTH_WRITEMASK, depthMask);
-    n.getIntegerv(GL.STENCIL_WRITEMASK, stencilMask);
-    n.getIntegerv(GL.STENCIL_BACK_WRITEMASK, stencilBackMask);
-    const scissor = n.isEnabled(GL.SCISSOR_TEST);
-    const discard = this.es3 ? n.isEnabled(GL.RASTERIZER_DISCARD) : false;
-
-    n.bindFramebuffer(GL.FRAMEBUFFER, fbo);
-    n.clearColor(0, 0, 0, 0);
-    n.clearDepthf(1);
-    n.clearStencil(0);
-    n.colorMask(true, true, true, true);
-    n.depthMask(true);
-    n.stencilMask(0xffffffff);
-    if (scissor) n.disable(GL.SCISSOR_TEST);
-    if (discard) n.disable(GL.RASTERIZER_DISCARD);
-    n.clear(GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT | GL.STENCIL_BUFFER_BIT);
-
-    n.clearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
-    n.clearDepthf(clearDepth[0]);
-    n.clearStencil(clearStencil[0]);
-    n.colorMask(!!colorMask[0], !!colorMask[1], !!colorMask[2], !!colorMask[3]);
-    n.depthMask(!!depthMask[0]);
-    n.stencilMaskSeparate(GL.FRONT, stencilMask[0]);
-    n.stencilMaskSeparate(GL.BACK, stencilBackMask[0]);
-    if (scissor) n.enable(GL.SCISSOR_TEST);
-    if (discard) n.enable(GL.RASTERIZER_DISCARD);
+    this.n.bindFramebuffer(GL.FRAMEBUFFER, fbo);
+    clearFramebufferContents(this.n, this.es3, GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT | GL.STENCIL_BUFFER_BIT);
   }
 
   /**

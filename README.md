@@ -218,7 +218,7 @@ sudo apt-get install -y libegl1 libgles2 libgl1-mesa-dri   # Debian/Ubuntu, GitH
 LIBGL_ALWAYS_SOFTWARE=1 node render.mjs                     # llvmpipe: no GPU, no display server
 ```
 
-Verified in a Debian 12 container (Mesa 22.3, llvmpipe): 233 of 246 tests pass and 13 are skipped as ANGLE- or macOS-specific (exact extension lists, translated shader source, multi-draw, the ImageIO codec), and all 12 three.js examples render — JPEG textures included. A software rasterizer is slower than Metal or D3D11, but fine for CI screenshots and regression tests. Point `NODE_WEBGL_LIBEGL` at Chromium's ANGLE + SwiftShader instead for browser-identical validation.
+Verified in a Debian 12 container (Mesa 22.3, llvmpipe): 233 of 246 tests pass and 13 are skipped as ANGLE- or macOS-specific (exact extension lists, translated shader source, multi-draw, the ImageIO codec), and all 12 three.js examples render — JPEG textures included. Without ANGLE, the library also fills in what WebGL guarantees but Mesa does not: fresh depth/stencil storage reads as depth 1.0 and stencil 0, and `WEBGL_clip_cull_distance` maps to `GL_EXT_clip_cull_distance`. Mesa's GLES contexts clip large points and lines by their centers and endpoints (desktop GL clips them geometrically), so points and lines crossing the viewport edge or the near plane can render differently than in a browser. A software rasterizer is slower than Metal or D3D11, but fine for CI screenshots and regression tests. Point `NODE_WEBGL_LIBEGL` at Chromium's ANGLE + SwiftShader instead for browser-identical validation.
 
 ## How it works
 
