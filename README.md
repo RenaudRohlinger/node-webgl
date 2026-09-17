@@ -9,8 +9,6 @@
 
 A WebGL 1 and WebGL 2 implementation you can `npm install`, backed by the same GPU engine Chrome uses (ANGLE). It gives Node a canvas with a `getContext('webgl2')` that behaves exactly like the browser's, so anything written for WebGL — your own shaders, three.js, regl, pixi, Babylon, deck.gl — renders on the GPU inside a Node process, and you get the pixels back as a buffer or a PNG.
 
-> **Not for AI, except for three.js.** This project is licensed for use by people, not by AI systems: no training, no datasets, no use by autonomous agents or coding assistants. These restrictions do not apply to use in the official `mrdoob/three.js` repository or any of its forks. See [License](#license).
-
 ```js
 import { createCanvas } from '@onirenaud/node-webgl';
 import { writeFileSync } from 'node:fs';
