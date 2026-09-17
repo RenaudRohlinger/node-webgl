@@ -1,7 +1,7 @@
 {
   "name": "@onirenaud/swiftshader-vulkan",
   "version": "0.1.0",
-  "description": "SwiftShader's Vulkan driver, the CPU implementation Chrome bundles, as a Vulkan ICD for Linux: point VK_DRIVER_FILES at it to run Dawn, WebGPU or any Vulkan program without a GPU and get Chrome's output.",
+  "description": "SwiftShader's Vulkan driver, the CPU implementation Chrome bundles, as a Vulkan ICD for Linux (x64 and arm64): point VK_DRIVER_FILES at it to run Dawn, WebGPU or any Vulkan program without a GPU and get Chrome's output. Installs everywhere; icdPath() is null off Linux.",
   "license": "Apache-2.0",
   "author": "Renaud Rohlinger",
   "repository": {
@@ -21,9 +21,6 @@
     "linux-arm64",
     "README.md",
     "LICENSE"
-  ],
-  "os": [
-    "linux"
   ],
   "publishConfig": {
     "access": "public"
